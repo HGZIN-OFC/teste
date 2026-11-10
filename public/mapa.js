@@ -59,7 +59,7 @@ function buildTerrain(rec) {
   const idx = [];
   for (let i = 0; i < G - 1; i++) for (let j = 0; j < G - 1; j++) {
     const a = i * G + j, b = a + 1, c = a + G, d = c + 1;
-    idx.push(a, c, b, b, c, d);
+    idx.push(a, b, c, b, d, c);   // enrolamento: normal para cima (y+)
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -97,21 +97,23 @@ function buildStruct(quadsBuf) {
     const c1 = c0.slice(); c1[U] += sz[U];
     const c2 = c1.slice(); c2[Vax] += sz[Vax];
     const c3 = c0.slice(); c3[Vax] += sz[Vax];
-    for (const c of [c0, c1, c2, c3]) {
+    const flip = (d === 1 ? -1 : 1) * sgn < 0;   // (U x V) aponta para a normal?
+    const corners = flip ? [c0, c3, c2, c1] : [c0, c1, c2, c3];
+    for (const c of corners) {
       pos[p++] = c[0]; pos[p++] = c[1]; pos[p++] = c[2];
       nor[v++] = nrm[0]; nor[v] = nrm[1]; nor[v + 1] = nrm[2]; v += 2;
       col[t++] = cr; col[t++] = cg; col[t++] = cb;
     }
     const b = k * 4;
     idx[k * 6] = b; idx[k * 6 + 1] = b + 1; idx[k * 6 + 2] = b + 2;
-    idx[k * 6 + 3] = b; idx[k * 6 + 4] = b + 2; idx[k * 6 + 5] = b + 3;
+    idx[k * 6 + 3] = b; idx[k * 6 + 4] = b + 2; idx[k * 6 + 5] = b + 3;  // com 'flip' a ordem já está certa
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.setIndex(new THREE.BufferAttribute(idx, 1));
-  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
 }
 
 async function ensureRegion(rx, rz, wantStruct) {
