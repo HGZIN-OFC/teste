@@ -53,6 +53,7 @@ export function showWorlds() {
       ${soloOnly ? '' : `<div class="sticker o tilt-r"><h3>Criar mundo (coop)</h3><div class="row"><input type="text" id="wn" maxlength="24" placeholder="Nome do mundo"><button class="btn" id="wc">Criar</button></div></div>
       <div class="sticker b tilt-l"><h3>Entrar com código</h3><div class="row"><input type="text" id="wcode" maxlength="16" placeholder="KNH-XXXX"><button class="btn" id="wj">Entrar</button></div><div id="werr" class="err"></div></div>`}
     </div>
+    <div class="row"><a class="btn b" href="/mapa.html" style="text-decoration:none">Explorar o mapa (Konoha)</a></div>
     ${soloOnly ? '<div id="wg" class="hidden"></div>' : '<h2 class="subtitle">Seus mundos</h2><div class="grid" id="wg"></div>'}
     ${soloOnly ? '' : `<div class="muted" style="color:#fff">Servidor: ${esc(location.host)} — compartilhe o código do mundo com seus amigos (eles precisam abrir o mesmo endereço).</div>`}
   </div>`);

@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8">
+<script type="importmap">{"imports":{"three":"./mini-three.js"}}</script>
+<style>body{margin:0;background:#222;display:flex;flex-wrap:wrap;gap:4px;font:12px sans-serif;color:#fff}figure{margin:0}figcaption{text-align:center}</style></head>
+<body><script type="module">
+import * as THREE from 'three';
+import { buildNinja, defaultLook, animateNinja } from '../../public/ninja.js';
+const q = new URLSearchParams(location.search);
+const cases = JSON.parse(decodeURIComponent(q.get('c') || '[{}]'));
+const W = +(q.get('w') || 360), H = +(q.get('h') || 480);
+for (const cs of cases) {
+  const scene = new THREE.Group();
+  const J = buildNinja({ ...defaultLook(), ...(cs.look || {}) }, cs.clan || 'uchiha', 0);
+  J.root.rotation.y = cs.ry || 0; scene.add(J.root);
+  if (cs.anim) for (let i = 0; i < (cs.frames || 40); i++) animateNinja(J, 0.016, { grounded: true, speed: 0, ...cs.anim, actT: cs.anim.actT });
+  const fig = document.createElement('figure'); const c = document.createElement('canvas'); c.width = W; c.height = H; fig.append(c);
+  const cap = document.createElement('figcaption'); cap.textContent = cs.label || ''; fig.append(cap); document.body.append(fig);
+  THREE.render(c, scene, cs.cam || {});
+}
+window.__done = true;
+</script></body></html>
