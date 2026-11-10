@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Shinobi Wilds</title>
+<link rel="stylesheet" href="/style.css">
+<script>
+  // three.js: usa /vendor/three.module.js se existir (modo offline), senão o CDN.
+  (function () {
+    var local = false;
+    try { var x = new XMLHttpRequest(); x.open('HEAD', '/vendor/three.module.js', false); x.send(); local = x.status === 200; } catch (e) {}
+    var url = local ? '/vendor/three.module.js' : 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+    document.write('<script type="importmap">' + JSON.stringify({ imports: { three: url } }) + '<\/script>');
+    setTimeout(function () {
+      if (!window.__swBoot) document.getElementById('bootfail').style.display = 'flex';
+    }, 7000);
+  })();
+</script>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud" class="hidden"></div>
+<div id="screens"></div>
+<div id="pause" class="hidden"></div>
+<div id="toasts"></div>
+<div id="bootfail" class="sticker" style="display:none">
+  <h2>Não consegui carregar o three.js</h2>
+  <p>O jogo carrega o three.js de um CDN. Sem internet? Baixe
+  <code>https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js</code>
+  e salve em <code>public/vendor/three.module.js</code>. Depois recarregue a página.</p>
+</div>
+<script type="module" src="/main.js"></script>
+</body>
+</html>

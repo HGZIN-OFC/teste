@@ -1,0 +1,15 @@
+{
+  "name": "shinobi-wilds",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Protótipo 3D de navegador: exploração e sobrevivência ninja com coop (até 4 jogadores).",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test.js",
+    "test:all": "node test.js && for f in smoke touch solo bundle hair; do node --import ./tests/register.mjs tests/$f.mjs || exit 1; done"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
