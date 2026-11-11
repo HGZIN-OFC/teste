@@ -12,12 +12,18 @@ async function gunzip(url) {
 }
 
 // Retorna { terrain, paleta } com as 9 regiões da arena (terreno, colisão e estruturas).
-export async function loadArenaWeb() {
+// onProgress(p) recebe o avanço de 0 a 1 conforme cada arquivo é baixado e descompactado.
+export async function loadArenaWeb(onProgress = () => {}) {
   const indice = await (await fetch(abs('/mundo/indice.json'))).json();
   const terrain = createTerrain();
-  await Promise.all(arenaRegions().map(async ([rx, rz]) => {
+  const regions = arenaRegions();
+  const total = regions.length * 3; let done = 0;
+  const tick = () => onProgress(++done / total);
+  await Promise.all(regions.map(async ([rx, rz]) => {
     const base = `/mundo/r.${rx}.${rz}`;
-    const [terr, solid, quads] = await Promise.all([gunzip(base + '.terr.gz'), gunzip(base + '.solid.gz'), gunzip(base + '.quads.gz')]);
+    const [terr, solid, quads] = await Promise.all([
+      gunzip(base + '.terr.gz').finally(tick), gunzip(base + '.solid.gz').finally(tick), gunzip(base + '.quads.gz').finally(tick),
+    ]);
     if (!terr) return;
     terrain.add(rx, rz, { terr, solid, quads, tex: `/mundo/tex/r.${rx}.${rz}.jpg` });
   }));

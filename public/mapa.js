@@ -2,6 +2,7 @@
 // e minimapa estilo Fortnite. Os dados vêm de /mundo (gerados por tools/mapa/export2.py).
 import * as THREE from 'three';
 import { buildNinja, defaultLook } from './ninja.js';
+import { showLoading } from './loading.js';
 
 const TS = 512;           // tamanho de uma região em blocos (= metros)
 const STEP = 4;           // passo da grade de terreno
@@ -39,11 +40,14 @@ const regions = new Map();     // "rx,rz" -> { rx, rz, group, terr, alt, struct,
 const texImgs = new Map();     // "rx,rz" -> HTMLImageElement (usado no minimapa e no terreno)
 
 // ---------- carregamento ----------
+let onFile = null;   // progresso da tela de carregamento (um arquivo a cada descompactação)
 async function gunzip(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error('não achei ' + url);
   const ds = new DecompressionStream('gzip');
-  return await new Response(r.body.pipeThrough(ds)).arrayBuffer();
+  const buf = await new Response(r.body.pipeThrough(ds)).arrayBuffer();
+  if (onFile) onFile();
+  return buf;
 }
 function loadImg(key) {
   if (texImgs.has(key)) return texImgs.get(key);
@@ -504,8 +508,12 @@ async function start() {
   paleta = indice.paleta;
   pal3 = new Float32Array(paleta.length * 3);
   paleta.forEach((c, i) => { pal3[i * 3] = c[0] / 255; pal3[i * 3 + 1] = c[1] / 255; pal3[i * 3 + 2] = c[2] / 255; });
-  // o terreno sob o jogador precisa estar pronto antes de posicionar
-  await ensureRegion(Math.floor(SPAWN.x / TS), Math.floor(SPAWN.z / TS), true, true);
+  // o terreno sob o jogador precisa estar pronto antes de posicionar (terreno, altura, estruturas e colisão = 4 arquivos)
+  const loader = showLoading('Carregando Konoha…'); let got = 0; const need = 4;
+  onFile = () => { got++; loader.set(got / need * 0.95, 'Baixando terreno, altura, estruturas e colisão…'); };
+  try { await ensureRegion(Math.floor(SPAWN.x / TS), Math.floor(SPAWN.z / TS), true, true); }
+  catch (e) { loader.error('Erro: ' + e.message); throw e; }
+  onFile = null; loader.set(1, 'Pronto!'); setTimeout(() => loader.done(), 150);
   player.y = terrAt(player.x, player.z);
   ready = true;
   statusEl.textContent = 'Konoha · regiões: ' + regions.size + ' · M: mapa completo';
