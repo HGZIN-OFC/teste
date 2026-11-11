@@ -21,6 +21,7 @@ from scipy import sparse, ndimage
 from skimage import measure
 from anvil import load_box
 from ruas import aplicar_ruas, fechar_pedra
+from casas import achar_casas, casas_mesh
 from palette import rgb
 from paths import REG
 from mesher import mesh as greedy_mesh
@@ -216,7 +217,12 @@ def build(rx, rz):
     del lab, sizes
     thin = np.isin(ids, list(THIN))
     smooth_solid = solid & big_mask & ~thin
+    # casas pequenas viram modelos próprios (ver casas.py); a colisão de voxel continua a mesma
+    casa_m, caixas_casa = achar_casas(smooth_solid)
+    smooth_solid = smooth_solid & ~casa_m
     cube_solid = solid & thin
+    for (x0c, x1c, y0c, y1c, z0c, z1c) in caixas_casa:   # cubos finos (vidro, grades) em cima das casas saem: a casa é modelo próprio
+        cube_solid[max(x0c - 1, 0):x1c + 1, y0c:y1c + 4, max(z0c - 1, 0):z1c + 1] = False
     del big_mask, solid
     print(f'  construções (suaves): {int(smooth_solid.sum())} blocos; finos (cubos): {int(cube_solid.sum())}', flush=True)
 
@@ -236,6 +242,11 @@ def build(rx, rz):
         colours = colours[used]
     else:
         local = np.zeros((0, 3)); colours = np.zeros((0, 3), np.uint8); faces = np.zeros((0, 3), np.int64)
+    Vc, Cc, Fc, nc = casas_mesh(caixas_casa, M, TS)
+    if nc:
+        base_n = len(local)
+        local = np.vstack([local, Vc]); colours = np.vstack([colours, Cc]); faces = np.vstack([faces, Fc + base_n])
+    print(f'  casas (modelo próprio): {nc}', flush=True)
     print(f'  suave: {len(faces)} triângulos, {time.time()-t0:.1f}s', flush=True)
 
     # peças pequenas em cubos (só o miolo da região; a borda fica com a região vizinha)
