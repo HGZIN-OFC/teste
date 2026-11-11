@@ -11,7 +11,7 @@ const TOUCH = matchMedia('(pointer: coarse)').matches;   // celular/tablet: vers
 const R_TERR = TOUCH ? 1 : 2;   // raio (em regiões) com terreno
 const R_STRUCT = 0;       // raio (em regiões) com malha de estruturas: só a região atual (malha pesada)
 const R_SOLID = 1;        // raio (em regiões) com colisão voxel das estruturas
-const SPAWN = { x: 500, z: -1413 };   // spawn do próprio save
+const SPAWN = { x: 499, z: -1250 };   // praça no centro de Konoha
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');

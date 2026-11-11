@@ -127,7 +127,7 @@ function acceptMission(room, p, mid) {
   bcast(room, { t: 'notice', msg: `Missão aceita por ${p.name}: ${def.name}` });
 }
 function spawnEnemy(room, type, i) {
-  const c = WORLD.fieldCenter; const ang = Math.random() * Math.PI * 2; const rad = 6 + Math.random() * 12;
+  const c = WORLD.fieldCenter; const ang = Math.random() * Math.PI * 2; const rad = 3 + Math.random() * 5;   // bandidos nascem agrupados no campo (3 a 8 m do centro)
   const id = room.enemyId++; const T = ENEMY_TYPES[type];
   const ex = c[0] + Math.cos(ang) * rad, ez = c[2] + Math.sin(ang) * rad;
   room.enemies.set(id, { id, type, p: [ex, terrain.groundAt(ex, ez, 0), ez], ry: 0, hp: T.hp, maxHp: T.hp, cd: 1 + Math.random(), stun: 0, burn: null, hurtBy: new Set() });
