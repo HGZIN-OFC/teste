@@ -1,0 +1,83 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Prévia da malha suave</title>
+<style>html,body{margin:0;background:#8fb4d9}canvas{display:block}</style></head>
+<body><canvas id="c"></canvas>
+<script>
+// Prévia das estruturas (malha suave .smooth.gz) em WebGL puro, sem three.js (offline).
+// Uso: estrutura.html?r=0,-3&e=x,y,z&t=x,y,z&w=800&h=600  (coordenadas locais da região, em metros)
+(async () => {
+  const q = new URLSearchParams(location.search);
+  const [rx, rz] = (q.get('r') || '0,-3').split(',').map(Number);
+  const E = (q.get('e') || '-40,30,40').split(',').map(Number);
+  const T = (q.get('t') || '0,5,0').split(',').map(Number);
+  const W = +(q.get('w') || 800), H = +(q.get('h') || 600);
+  const canvas = document.getElementById('c'); canvas.width = W; canvas.height = H;
+  const gl = canvas.getContext('webgl', { antialias: true });
+  gl.getExtension('OES_element_index_uint');
+
+  // carrega e descompacta
+  const r = await fetch(`/mundo/r.${rx}.${rz}.smooth.gz`);
+  const ds = new DecompressionStream('gzip');
+  const u8 = new Uint8Array(await new Response(r.body.pipeThrough(ds)).arrayBuffer());
+  const [nV, nT] = new Uint32Array(u8.slice(0, 8).buffer);
+  const pos = new Int16Array(u8.slice(8, 8 + nV * 6).buffer);
+  const colU = u8.subarray(8 + nV * 6, 8 + nV * 9);
+  const idx = new Uint32Array(u8.slice(8 + nV * 9, 8 + nV * 9 + nT * 12).buffer);
+  const P = new Float32Array(nV * 3), C = new Float32Array(nV * 3), N = new Float32Array(nV * 3);
+  for (let i = 0; i < nV * 3; i++) { P[i] = pos[i] / 16; C[i] = colU[i] / 255; }
+  // normais: média das faces (ponderada pela área), como computeVertexNormals
+  for (let t = 0; t < nT; t++) {
+    const a = idx[t * 3] * 3, b = idx[t * 3 + 1] * 3, c = idx[t * 3 + 2] * 3;
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+    const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    for (const k of [a, b, c]) { N[k] += nx; N[k + 1] += ny; N[k + 2] += nz; }
+  }
+  for (let i = 0; i < nV; i++) {
+    const x = N[i * 3], y = N[i * 3 + 1], z = N[i * 3 + 2], l = Math.hypot(x, y, z) || 1;
+    N[i * 3] = x / l; N[i * 3 + 1] = y / l; N[i * 3 + 2] = z / l;
+  }
+
+  const vs = `attribute vec3 aP, aN, aC; uniform mat4 uM; varying vec3 vN, vC;
+    void main(){ vN = aN; vC = aC; gl_Position = uM * vec4(aP,1.0); }`;
+  const fs = `precision mediump float; varying vec3 vN, vC;
+    void main(){
+      vec3 n = normalize(vN); if (!gl_FrontFacing) n = -n;
+      vec3 L = normalize(vec3(0.5, 0.8, 0.35));
+      float d = max(dot(n, L), 0.0);
+      float hemi = 0.5 + 0.5 * n.y;
+      vec3 col = vC * (0.45 + 0.55 * d + 0.35 * hemi);
+      gl_FragColor = vec4(pow(col, vec3(1.0/1.1)), 1.0);
+    }`;
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(prog); gl.useProgram(prog);
+  const buf = (data, name, size) => {
+    const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(prog, name); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+  };
+  buf(P, 'aP', 3); buf(N, 'aN', 3); buf(C, 'aC', 3);
+  const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+
+  // matrizes: perspectiva * vista
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const norm = (a) => { const l = Math.hypot(...a) || 1; return a.map(x => x / l); };
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const f = norm(sub(T, E)), s = norm(cross(f, [0, 1, 0])), u = cross(s, f);
+  const V = [s[0], u[0], -f[0], 0, s[1], u[1], -f[1], 0, s[2], u[2], -f[2], 0, -dot(s, E), -dot(u, E), dot(f, E), 1];
+  const fov = 50 * Math.PI / 180, near = 0.5, far = 3000, asp = W / H, k = 1 / Math.tan(fov / 2);
+  const Pm = [k / asp, 0, 0, 0, 0, k, 0, 0, 0, 0, (far + near) / (near - far), -1, 0, 0, 2 * far * near / (near - far), 0];
+  const mul = (A, B) => { const o = new Array(16).fill(0); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) for (let i = 0; i < 4; i++) o[c * 4 + r] += A[i * 4 + r] * B[c * 4 + i]; return o; };
+  const M = mul(Pm, V);
+  gl.uniformMatrix4fv(gl.getUniformLocation(prog, 'uM'), false, new Float32Array(M));
+
+  gl.viewport(0, 0, W, H);
+  gl.clearColor(0.56, 0.7, 0.85, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);
+  gl.drawElements(gl.TRIANGLES, nT * 3, gl.UNSIGNED_INT, 0);
+  window.__info = { nV, nT };
+  window.__done = true;
+})().catch(e => { window.__err = String(e); window.__done = true; });
+</script></body></html>

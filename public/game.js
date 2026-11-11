@@ -23,9 +23,9 @@ const ACTION_KEYS = ['jump', 'dash', 'fire', 'fear', 'interact', 'cloak', 'byaku
 export async function startGame({ world, char, onExit }) {
   const settings = loadSettings();
   const loader = showLoading('Carregando Konoha…');
-  let terrain, paleta;
+  let terrain;
   try {
-    ({ terrain, paleta } = await loadArenaWeb(p => loader.set(p * 0.85, 'Baixando terreno, colisão e estruturas…')));  // Konoha do mapa Naruto
+    ({ terrain } = await loadArenaWeb(p => loader.set(p * 0.85, 'Baixando terreno, colisão e estruturas…')));  // Konoha do mapa Naruto
   } catch (e) { loader.error('Erro ao carregar o mapa: ' + e.message); throw e; }
   loader.set(0.9, 'Montando o mundo…');
   const canvas = document.getElementById('game');
@@ -34,7 +34,7 @@ export async function startGame({ world, char, onExit }) {
   const camera = new THREE.PerspectiveCamera(settings.fov, innerWidth / innerHeight, 0.1, 800);
   const hemi = new THREE.HemisphereLight(0xdcefff, 0x8a7a5a, 1.2); scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff0d0, 2.2); sun.castShadow = true; sun.shadow.camera.left = -45; sun.shadow.camera.right = 45; sun.shadow.camera.top = 45; sun.shadow.camera.bottom = -45; sun.shadow.camera.far = 220; sun.shadow.bias = -0.0004; sun.shadow.camera.updateProjectionMatrix(); scene.add(sun, sun.target);
-  const konoha = await buildNarutoWorld(scene, terrain, paleta);
+  const konoha = await buildNarutoWorld(scene, terrain);
   loader.set(1, 'Pronto!'); setTimeout(() => loader.done(), 150);
   const fx = createFx(scene), ents = createEntities(scene);
   const audio = new Audio(settings), net = world.solo ? new LocalNet(terrain) : new Net();

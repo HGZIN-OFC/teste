@@ -7,12 +7,6 @@ import { toon } from './ninja.js';
 import { TS, STEP, G } from './terrain.js';
 import { gunzip } from './terrain-web.js';
 
-function paletteRGB(paleta) {
-  const p = new Float32Array(paleta.length * 3);
-  paleta.forEach((c, i) => { p[i * 3] = c[0] / 255; p[i * 3 + 1] = c[1] / 255; p[i * 3 + 2] = c[2] / 255; });
-  return p;
-}
-
 // grade de altura de 4 m com a textura do mapa (mesma lógica do mapa.html)
 function buildTerrainMesh(rec) {
   const pos = new Float32Array(G * G * 3), uv = new Float32Array(G * G * 2);
@@ -50,50 +44,28 @@ function buildTerrainMesh(rec) {
   return mesh;
 }
 
-// quads: int16 x8 = [x,y,z, sx,sy,sz, eixo*2+sinal, cor] (mesma lógica do mapa.html). Arrays tipados: bem mais rápido.
-function buildStructMesh(quadsBuf, pal3) {
-  const q = new Int16Array(quadsBuf.buffer, quadsBuf.byteOffset, quadsBuf.byteLength / 2), n = q.length / 8;
-  const pos = new Float32Array(n * 18), nor = new Float32Array(n * 18), col = new Float32Array(n * 18);
-  const mn = [0, 0, 0], sz = [0, 0, 0], nrm = [0, 0, 0], c = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
-  const TRI = [0, 1, 2, 0, 2, 3];   // 2 triângulos por quad
-  let p = 0;
-  for (let k = 0; k < n; k++) {
-    const o = k * 8;
-    mn[0] = q[o]; mn[1] = q[o + 1]; mn[2] = q[o + 2];
-    sz[0] = q[o + 3]; sz[1] = q[o + 4]; sz[2] = q[o + 5];
-    const ax = q[o + 6], d = ax >> 1, sgn = (ax & 1) ? 1 : -1;
-    const cc = q[o + 7] * 3;
-    const cr = pal3[cc], cg = pal3[cc + 1], cb = pal3[cc + 2];
-    const U = d === 0 ? 1 : 0, Vax = d === 2 ? 1 : 2;
-    nrm[0] = nrm[1] = nrm[2] = 0; nrm[d] = sgn;
-    const flip = (d === 1 ? -1 : 1) * sgn < 0;
-    const cs = flip ? [[0, 0], [0, 1], [1, 1], [1, 0]] : [[0, 0], [1, 0], [1, 1], [0, 1]];
-    for (let i = 0; i < 4; i++) {
-      const cu = cs[i][0], cv = cs[i][1], ci = c[i];
-      ci[0] = mn[0]; ci[1] = mn[1]; ci[2] = mn[2];
-      ci[U] += cu * sz[U]; ci[Vax] += cv * sz[Vax];
-    }
-    for (let j = 0; j < 6; j++) {
-      const ci = c[TRI[j]];
-      pos[p] = ci[0]; pos[p + 1] = ci[1]; pos[p + 2] = ci[2];
-      nor[p] = nrm[0]; nor[p + 1] = nrm[1]; nor[p + 2] = nrm[2];
-      col[p] = cr; col[p + 1] = cg; col[p + 2] = cb;
-      p += 3;
-    }
-  }
+// Estruturas suaves (gerada offline por tools/mapa/smooth.py): marching cubes + simplificação.
+// Formato: u32 nV, u32 nT; i16 posição (metros x16, local da região); u8 cor RGB por vértice; u32 índices.
+function buildSmoothMesh(u8) {
+  const [nV, nT] = new Uint32Array(u8.slice(0, 8).buffer);
+  const pos = new Int16Array(u8.slice(8, 8 + nV * 6).buffer);
+  const colU = u8.subarray(8 + nV * 6, 8 + nV * 9);
+  const idx = new Uint32Array(u8.slice(8 + nV * 9, 8 + nV * 9 + nT * 12).buffer);
+  const P = new Float32Array(nV * 3), C = new Float32Array(nV * 3);
+  for (let i = 0; i < nV * 3; i++) { P[i] = pos[i] / 16; C[i] = colU[i] / 255; }
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('position', new THREE.BufferAttribute(P, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(C, 3));
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.computeVertexNormals();
   const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
   mesh.castShadow = true; mesh.receiveShadow = true;
   return mesh;
 }
 
 // Monta a arena: terreno de todas as regiões já, e as estruturas do nascimento primeiro (depois, uma região por vez).
-export async function buildNarutoWorld(scene, terrain, paleta) {
+export async function buildNarutoWorld(scene, terrain) {
   const root = new THREE.Group(); scene.add(root);
-  const pal3 = paletteRGB(paleta);
   const sx = WORLD.spawn[0], sz = WORLD.spawn[2];
   const near = (rec) => Math.hypot(rec.rx * TS + TS / 2 - sx, rec.rz * TS + TS / 2 - sz);
   const recs = [...terrain.regions.values()].sort((a, b) => near(a) - near(b));
@@ -102,16 +74,16 @@ export async function buildNarutoWorld(scene, terrain, paleta) {
     g.add(buildTerrainMesh(rec));
     rec.group = g;
   }
-  const addStruct = (rec, buf) => { rec.group.add(buildStructMesh(buf, pal3)); };
+  const addStruct = (rec, buf) => { rec.group.add(buildSmoothMesh(buf)); };
   const first = recs[0];
-  const firstBuf = await gunzip(`/mundo/r.${first.rx}.${first.rz}.quads.gz`);
+  const firstBuf = await gunzip(`/mundo/r.${first.rx}.${first.rz}.smooth.gz`);
   if (firstBuf) addStruct(first, firstBuf);
   const pending = recs.slice(1);
   let busy = false;
   const streamStructs = () => {
     if (busy || !pending.length) return;
     const rec = pending.shift(); busy = true;
-    gunzip(`/mundo/r.${rec.rx}.${rec.rz}.quads.gz`).then((buf) => { if (buf) addStruct(rec, buf); }).catch(() => {}).finally(() => { busy = false; });
+    gunzip(`/mundo/r.${rec.rx}.${rec.rz}.smooth.gz`).then((buf) => { if (buf) addStruct(rec, buf); }).catch(() => {}).finally(() => { busy = false; });
   };
 
   // provisórios (posições relativas ao nascimento; a altura vem do terreno)
