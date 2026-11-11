@@ -15,11 +15,12 @@
 # Uso: python3 tools/mapa/smooth.py            (as 9 regiões da arena)
 #      python3 tools/mapa/smooth.py -1,-4 0,-3  (regiões específicas)
 import sys, os, gzip, time
-sys.path.insert(0, '/home/claude/mapbuild')
+sys.path.insert(0, '/home/claude/mapbuild'); sys.path.insert(0, '/home/claude/shinobi-wilds/tools/mapa')
 import numpy as np
 from scipy import sparse, ndimage
 from skimage import measure
 from anvil import load_box
+from ruas import aplicar_ruas
 from palette import rgb
 from paths import REG
 from mesher import mesh as greedy_mesh
@@ -190,6 +191,7 @@ def build(rx, rz):
     a = load_box(REG, x0 - M, x0 + TS + M, z0 - M, z0 + TS + M, 0, Y)
     ids = (a >> 4).astype(np.int32)
     del a
+    ids = aplicar_ruas(ids)  # ruas planas (ver ruas.py)
     solid = (ids != 0) & ~np.isin(ids, list(NATURAL)) & ~np.isin(ids, list(FOLHAGEM)) & ~np.isin(ids, list(DECOR))
     ys = np.flatnonzero(solid.any(axis=(0, 2)))
     if ys.size == 0:
