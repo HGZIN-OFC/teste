@@ -105,4 +105,14 @@ label.f{display:flex;flex-direction:column;gap:3px;font-weight:700;font-size:13p
 .touch-mode .prompt{bottom:34%;font-size:14px}
 @media(max-width:700px){.title{font-size:40px}.preview{min-height:300px}.opts{grid-template-columns:1fr}.btn{font-size:15px;padding:8px 12px}}
 
+
+/* ===== criador: seções, barra de vistas e preview ===== */
+.cr-sec{display:flex;flex-direction:column;gap:8px;padding:10px 0 12px;border-bottom:2px dotted rgba(20,20,43,.25)}
+.cr-sec:last-of-type{border-bottom:0}
+.cr-sec h3{font-size:16px;margin:0;color:var(--r)}
+.pvbar{position:absolute;left:10px;right:10px;top:10px;display:flex;gap:6px;flex-wrap:wrap;z-index:2}
+.pvbar .btn{font-size:13px;padding:4px 10px;border-width:3px}
+.pvbar .btn.on{background:var(--r);color:#fff}
+@media(max-width:850px){.preview{order:-1;min-height:300px}}
+
 :root{color-scheme:dark}

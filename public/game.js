@@ -33,7 +33,7 @@ export async function startGame({ world, char, onExit }) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x8fd3ff); scene.fog = new THREE.Fog(0xc8ebff, 90, 420);
   const camera = new THREE.PerspectiveCamera(settings.fov, innerWidth / innerHeight, 0.1, 800);
   const hemi = new THREE.HemisphereLight(0xdcefff, 0x8a7a5a, 1.2); scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff0d0, 2.2); sun.castShadow = true; sun.shadow.camera.left = -45; sun.shadow.camera.right = 45; sun.shadow.camera.top = 45; sun.shadow.camera.bottom = -45; sun.shadow.camera.far = 220; sun.shadow.bias = -0.0004; sun.shadow.camera.updateProjectionMatrix(); scene.add(sun, sun.target);
+  const sun = new THREE.DirectionalLight(0xffe6bf, 2.2); sun.castShadow = true; sun.shadow.camera.left = -45; sun.shadow.camera.right = 45; sun.shadow.camera.top = 45; sun.shadow.camera.bottom = -45; sun.shadow.camera.far = 220; sun.shadow.bias = -0.0004; sun.shadow.camera.updateProjectionMatrix(); scene.add(sun, sun.target);
   const konoha = await buildNarutoWorld(scene, terrain);
   loader.set(1, 'Pronto!'); setTimeout(() => loader.done(), 150);
   const fx = createFx(scene), ents = createEntities(scene);
@@ -61,6 +61,8 @@ export async function startGame({ world, char, onExit }) {
     renderer.setSize(innerWidth, innerHeight, false);
     const sh = q !== 'baixa'; if (renderer.shadowMap.enabled !== sh) { renderer.shadowMap.enabled = sh; scene.traverse(o => { if (o.material) { (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { m.needsUpdate = true; }); } }); }
     const size = q === 'alta' ? 2048 : 1024; if (sun.shadow.mapSize.x !== size) { sun.shadow.mapSize.set(size, size); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
+    // mapeamento de tons filmico só em média/alta (cores mais agradáveis e menos estouradas); baixa segue como antes
+    renderer.toneMapping = q === 'baixa' ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
     sun.castShadow = sh; setOutlines(q !== 'baixa'); scene.fog.far = q === 'alta' ? 520 : q === 'media' ? 420 : 300;
     camera.fov = settings.fov; camera.updateProjectionMatrix(); audio.apply(); H && H.setKeys && H.setKeys(settings.keys);
     codeMap = {}; for (const a of ACTION_KEYS) codeMap[settings.keys[a]] = a;

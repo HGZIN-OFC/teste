@@ -17,28 +17,47 @@ function mount(el) { killPreview(); const s = $screens(); s.innerHTML = ''; s.ap
 function disposeNinja(J) {
   J.root.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material && o.material.map && o.material.isMeshBasicMaterial) { o.material.map.dispose(); o.material.dispose(); } });
 }
-function createPreview(box) {
+// vistas do preview (câmera em metros; o personagem fica de frente para a câmera com rot = 0)
+const VIEWS = {
+  corpo: { eye: [0, 1.2, 4.9], at: [0, 0.98, 0] },
+  rosto: { eye: [0, 1.8, 1.55], at: [0, 1.74, 0] },
+  costas: { eye: [0, 1.2, -4.9], at: [0, 0.98, 0] },
+};
+function createPreview(box, { interactive = false } = {}) {
   const canvas = document.createElement('canvas'); box.appendChild(canvas);
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(2, devicePixelRatio));
   const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
-  cam.position.set(0, 1.05, 4.8); cam.lookAt(0, 0.95, 0);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x9a7a55, 1.3));
-  const dl = new THREE.DirectionalLight(0xffffff, 2.0); dl.position.set(2, 4, 3); scene.add(dl);
-  let cur = null, rot = 0.4, raf = 0, last = performance.now(), dragging = false, lx = 0;
+  scene.add(new THREE.HemisphereLight(0xfff6e8, 0x9a7a55, 1.25));
+  const key = new THREE.DirectionalLight(0xffffff, 2.0); key.position.set(2, 4, 3); scene.add(key);
+  const rim = new THREE.DirectionalLight(0xa9c8ff, 0.9); rim.position.set(-3, 2.5, -3); scene.add(rim);
+  const eye = [...VIEWS.corpo.eye], at = [...VIEWS.corpo.at];
+  let goal = VIEWS.corpo, zoom = 1;
+  let cur = null, rot = 0.4, goalRot = null, raf = 0, last = performance.now(), dragging = false, lx = 0, spin = true;
   const resize = () => { const w = box.clientWidth || 300, hh = box.clientHeight || 400; renderer.setSize(w, hh, false); cam.aspect = w / hh; cam.updateProjectionMatrix(); };
-  new ResizeObserver(resize).observe(box); resize();
-  canvas.style.pointerEvents = 'auto'; canvas.style.cursor = 'grab';
-  canvas.onpointerdown = (e) => { dragging = true; lx = e.clientX; canvas.setPointerCapture(e.pointerId); };
+  const ro = new ResizeObserver(resize); ro.observe(box); resize();
+  canvas.style.pointerEvents = 'auto'; canvas.style.cursor = 'grab'; canvas.style.touchAction = 'none';
+  canvas.onpointerdown = (e) => { dragging = true; spin = false; goalRot = null; lx = e.clientX; canvas.setPointerCapture(e.pointerId); };
   canvas.onpointermove = (e) => { if (dragging) { rot += (e.clientX - lx) * 0.012; lx = e.clientX; } };
-  canvas.onpointerup = () => { dragging = false; };
-  const loop = () => { raf = requestAnimationFrame(loop); const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now;
-    if (cur) { if (!dragging) rot += dt * 0.5; cur.root.rotation.y = rot; animateNinja(cur, dt, { speed: 0, grounded: true }); }
-    renderer.render(scene, cam); };
+  canvas.onpointerup = canvas.onpointercancel = () => { dragging = false; };
+  if (interactive) canvas.addEventListener('wheel', (e) => { e.preventDefault(); zoom = Math.min(1.5, Math.max(0.6, zoom * (1 + e.deltaY * 0.001))); }, { passive: false });
+  const loop = () => {
+    raf = requestAnimationFrame(loop); const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (spin && !dragging) rot += dt * 0.5;
+    if (goalRot !== null) { const d = Math.atan2(Math.sin(goalRot - rot), Math.cos(goalRot - rot)); rot += d * Math.min(1, dt * 6); if (Math.abs(d) < 0.005) goalRot = null; }
+    const k = Math.min(1, dt * 6), z = interactive ? zoom : 1;
+    const ge = goal.eye, ga = goal.at;
+    for (let i = 0; i < 3; i++) { const de = ga[i] + (ge[i] - ga[i]) * z; eye[i] += (de - eye[i]) * k; at[i] += (ga[i] - at[i]) * k; }
+    cam.position.set(eye[0], eye[1], eye[2]); cam.lookAt(at[0], at[1], at[2]);
+    if (cur) { cur.root.rotation.y = rot; animateNinja(cur, dt, { speed: 0, grounded: true }); }
+    renderer.render(scene, cam);
+  };
   loop();
   return {
     set(look, clan, tails) { if (cur) { scene.remove(cur.root); disposeNinja(cur); } cur = buildNinja(look, clan, tails); scene.add(cur.root); },
-    dispose() { cancelAnimationFrame(raf); if (cur) disposeNinja(cur); renderer.dispose(); canvas.remove(); },
+    view(name) { goal = VIEWS[name] || VIEWS.corpo; zoom = 1; goalRot = 0; spin = false; },
+    toggleSpin() { spin = !spin; return spin; },
+    dispose() { cancelAnimationFrame(raf); ro.disconnect(); if (cur) disposeNinja(cur); renderer.dispose(); canvas.remove(); },
   };
 }
 
@@ -119,26 +138,44 @@ export function showCreator(world) {
   const opt = (arr, v) => arr.map(([id, n]) => `<option value="${id}" ${id === v ? 'selected' : ''}>${n}</option>`).join('');
   const sw = (label, key, val) => `<label class="f">${label}<input type="color" data-look="${key}" value="${val}"></label>`;
   form.innerHTML = `
-   <label class="f">Nome<input type="text" id="nm" maxlength="14" placeholder="Seu ninja"></label>
-   <div><b>Clã</b><div class="seg" id="clans">${Object.entries(CLANS).map(([k, v]) => `<button class="btn sm" data-clan="${k}">${v.name}</button>`).join('')}</div><div class="muted" id="clandesc"></div></div>
-   <label class="f" id="tailw">Bijuu (Uzumaki): caudas<select id="tails">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<option>${n}</option>`).join('')}</select></label>
-   <div><b>Elementos (escolha 2)</b><div class="seg" id="els">${Object.entries(ELEMENTS).map(([k, v]) => `<button class="btn sm" data-el="${k}" title="${v.desc}">${v.name}</button>`).join('')}</div><div class="muted" id="eldesc"></div></div>
-   <div class="opts">
-    <label class="f">Cabelo<select data-look="hair">${opt(HAIR_STYLES, L.hair)}</select></label>
+   <section class="cr-sec"><h3>1 · Identidade</h3>
+    <label class="f">Nome<input type="text" id="nm" maxlength="14" placeholder="Seu ninja"></label>
+    <div><b>Clã</b><div class="seg" id="clans">${Object.entries(CLANS).map(([k, v]) => `<button class="btn sm" data-clan="${k}">${v.name}</button>`).join('')}</div><div class="muted" id="clandesc"></div></div>
+    <label class="f" id="tailw">Bijuu (Uzumaki): caudas<select id="tails">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<option>${n}</option>`).join('')}</select></label>
+    <div><b>Elementos (escolha 2)</b><div class="seg" id="els">${Object.entries(ELEMENTS).map(([k, v]) => `<button class="btn sm" data-el="${k}" title="${v.desc}">${v.name}</button>`).join('')}</div><div class="muted" id="eldesc"></div></div>
+   </section>
+   <section class="cr-sec"><h3>2 · Rosto</h3>
+    <div class="opts">
+     <label class="f">Olhos<select data-look="eyes">${opt(EYE_STYLES, L.eyes)}</select></label>
+     <label class="f">Pupilas<select data-look="pupil">${opt(PUPIL_STYLES, L.pupil)}</select></label>
+    </div>
+    <div class="row">${sw('Pele', 'skin', L.skin)}${sw('Olhos', 'eyeColor', L.eyeColor)}${sw('Pupila', 'pupilColor', L.pupilColor)}</div>
+   </section>
+   <section class="cr-sec"><h3>3 · Cabelo e testeira</h3>
+    <div class="opts">
+     <label class="f">Cabelo<select data-look="hair">${opt(HAIR_STYLES, L.hair)}</select></label>
+     <label class="f">Testeira<select data-look="band">${opt(BAND_OPTS, L.band)}</select></label>
+    </div>
+    <div class="row">${sw('Cor do cabelo', 'hairColor', L.hairColor)}${sw('Faixa/testeira', 'accent', L.accent)}</div>
+   </section>
+   <section class="cr-sec"><h3>4 · Roupas</h3>
     <label class="f">Roupa<select data-look="outfit">${opt(OUTFITS, L.outfit)}</select></label>
-    <label class="f">Olhos<select data-look="eyes">${opt(EYE_STYLES, L.eyes)}</select></label>
-    <label class="f">Pupilas<select data-look="pupil">${opt(PUPIL_STYLES, L.pupil)}</select></label>
-    <label class="f">Testeira<select data-look="band">${opt(BAND_OPTS, L.band)}</select></label>
-   </div>
-   <div class="row">${sw('Cabelo', 'hairColor', L.hairColor)}${sw('Pele', 'skin', L.skin)}${sw('Roupa A', 'outfitA', L.outfitA)}${sw('Roupa B', 'outfitB', L.outfitB)}${sw('Faixa/testeira', 'accent', L.accent)}${sw('Olhos', 'eyeColor', L.eyeColor)}${sw('Pupila', 'pupilColor', L.pupilColor)}</div>
-   <label class="f">Altura <input type="range" min="0.88" max="1.12" step="0.01" value="${L.height}" data-look="height"></label>
-   <label class="f">Musculatura <input type="range" min="0" max="1" step="0.01" value="${L.muscle}" data-look="muscle"></label>
-   <label class="f">Gordura corporal <input type="range" min="0" max="1" step="0.01" value="${L.fat}" data-look="fat"></label>
-   <label class="f">Rank inicial (modo de teste — normalmente começa Genin)<select id="rk">${RANKS.map((r, i) => `<option value="${i}">${r}</option>`).join('')}</select></label>
+    <div class="row">${sw('Roupa A', 'outfitA', L.outfitA)}${sw('Roupa B', 'outfitB', L.outfitB)}</div>
+   </section>
+   <section class="cr-sec"><h3>5 · Corpo</h3>
+    <label class="f">Altura <input type="range" min="0.88" max="1.12" step="0.01" value="${L.height}" data-look="height"></label>
+    <label class="f">Musculatura <input type="range" min="0" max="1" step="0.01" value="${L.muscle}" data-look="muscle"></label>
+    <label class="f">Gordura corporal <input type="range" min="0" max="1" step="0.01" value="${L.fat}" data-look="fat"></label>
+   </section>
+   <section class="cr-sec"><h3>6 · Começo</h3>
+    <label class="f">Rank inicial (modo de teste — normalmente começa Genin)<select id="rk">${RANKS.map((r, i) => `<option value="${i}">${r}</option>`).join('')}</select></label>
+   </section>
    <div class="err" id="er"></div>
    <div class="row"><button class="btn g" id="save">Criar e entrar</button></div>`;
   mount(el);
-  const prev = createPreview(pv); activePreview = prev;
+  pv.insertAdjacentHTML('beforeend', '<div class="pvbar"><button class="btn sm" data-view="corpo">Corpo</button><button class="btn sm" data-view="rosto">Rosto</button><button class="btn sm" data-view="costas">Costas</button><button class="btn sm" data-view="girar">Girar</button></div>');
+  const prev = createPreview(pv, { interactive: true }); activePreview = prev;
+  pv.querySelectorAll('[data-view]').forEach(b => b.onclick = () => { if (b.dataset.view === 'girar') prev.toggleSpin(); else prev.view(b.dataset.view); });
   let tmr = 0; const upd = () => { clearTimeout(tmr); tmr = setTimeout(() => prev.set(st.look, st.clan, st.tails), 60); };
   const validate = () => { const er = form.querySelector('#er'); const msgs = []; if (!st.name.trim()) msgs.push('Dê um nome ao personagem.'); if (st.elements.length !== 2) msgs.push('Escolha exatamente 2 elementos.'); er.textContent = msgs.join(' '); form.querySelector('#save').disabled = msgs.length > 0; };
   const sync = () => {

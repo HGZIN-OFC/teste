@@ -357,7 +357,7 @@ export function buildNinja(look, clan = 'uchiha', tails = 0) {
   let seed = 7; for (const ch of look.hair + look.hairColor) seed = (seed * 31 + ch.charCodeAt(0)) % 99991;
   const rng = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
   const M = look.muscle, F = look.fat, sk = look.skin;
-  const HIPY = 0.58, HEADS = 2.4;
+  const HIPY = 0.58, HEADS = 2.18;
   const root = new THREE.Group();
   const scaleG = grp(root); scaleG.scale.setScalar(look.height);
   const hips = grp(scaleG, 0, HIPY, 0);
@@ -411,13 +411,17 @@ export function buildNinja(look, clan = 'uchiha', tails = 0) {
   // braços: peças únicas e afiladas; mãos em luva arredondada
   const arm = (s) => {
     const sh = grp(spine, s * (0.21 + 0.04 * M), 0.31, 0);
-    const r0 = 0.064 + 0.018 * M + 0.008 * F, r1 = 0.054 + 0.014 * M;
-    part(limb(r0 + (sleeves ? 0.008 : 0), r1 + (sleeves ? 0.008 : 0), 0.19), sleeves ? top : sk, sh);
+    const r0 = 0.07 + 0.02 * M + 0.008 * F, r1 = 0.052 + 0.012 * M;
+    const sl = sleeves ? 0.008 : 0;
+    const armMat = sleeves ? top : sk;
+    part(limb(r0 + sl, r1 + sl, 0.19), armMat, sh);
+    part(ell((r0 + sl) * 1.08, (r0 + sl) * 1.12, (r0 + sl) * 1.08, 24), armMat, sh, [0, 0.005, 0]); // ombro arredondado
     const el = grp(sh, 0, -0.19, 0);
-    part(limb(r1 + (sleeves ? 0.008 : 0), 0.048 + 0.01 * M + (sleeves ? 0.008 : 0), 0.15), sleeves ? top : sk, el);
+    part(limb(r1 + sl, 0.04 + 0.008 * M + sl, 0.15), armMat, el);
+    part(ell((r1 + sl) * 1.05, (r1 + sl) * 1.05, (r1 + sl) * 1.05, 20), armMat, el); // cotovelo
     const hand = grp(el, 0, -0.2, 0.0);
-    part(ell(0.054, 0.06, 0.044, 24), sk, hand);
-    part(ell(0.017, 0.026, 0.017, 16), sk, hand, [-s * 0.034, 0.008, 0.016], [0, 0, -s * 0.4]);
+    part(ell(0.046, 0.058, 0.034, 24), sk, hand, [0, -0.02, 0]);             // palma achatada
+    part(ell(0.016, 0.03, 0.015, 16), sk, hand, [-s * 0.04, 0.0, 0.012], [0, 0, -s * 0.5]); // polegar
     return { sh, el };
   };
   const aL = arm(1), aR = arm(-1);
@@ -426,10 +430,12 @@ export function buildNinja(look, clan = 'uchiha', tails = 0) {
   // pernas: coxa e canela afiladas, sapato arredondado
   const leg = (s) => {
     const hp = grp(hips, s * 0.082, -0.02, 0);
-    const r0 = 0.074 + 0.018 * M + 0.02 * F, r1 = 0.06 + 0.01 * M + 0.008 * F;
+    const r0 = 0.092 + 0.02 * M + 0.02 * F, r1 = 0.066 + 0.01 * M + 0.008 * F;
     part(limb(r0, r1, 0.25), B, hp);
+    part(ell(r0 * 1.02, r0 * 1.04, r0 * 1.02, 24), B, hp); // quadril arredondado
     const kn = grp(hp, 0, -0.25, 0);
-    part(limb(r1 - (shorts ? 0.008 : 0), 0.05 + 0.006 * M, 0.25), shorts ? sk : B, kn);
+    part(ell(r1 * 1.05, r1 * 1.05, r1 * 1.05, 20), shorts ? sk : B, kn); // joelho
+    part(limb(r1 - (shorts ? 0.008 : 0), 0.042 + 0.008 * M, 0.25), shorts ? sk : B, kn);
     if (shorts) part(limb(r1 + 0.004, r1 + 0.004, 0.04), B, kn, [0, 0.02, 0]);
     part(ell(0.06, 0.05, 0.105, 32), 0x2c3040, kn, [0, -0.275, 0.03]);
     part(lathe([[0.0, -0.01], [0.058, -0.01], [0.06, 0.006], [0.0, 0.008]], 1, 1.75), 0xe9e6dc, kn, [0, -0.3, 0.03]); // sola

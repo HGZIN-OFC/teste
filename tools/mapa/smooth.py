@@ -27,9 +27,9 @@ from mesher import mesh as greedy_mesh
 OUT = '/home/claude/shinobi-wilds/public/mundo'
 TS = 512            # tamanho da região (blocos)
 Y = 256             # altura máxima
-M = 14              # margem em blocos (>= 2 * iterações Taubin + folga)
+M = 32              # margem em blocos (>= 2 * iterações Taubin + folga)
 BAND = 6.0          # faixa da borda da região (em blocos) que fica congelada
-TAUBIN_ITERS = 6
+TAUBIN_ITERS = 14   # mais iterações = bordas mais arredondadas (sem encolher o volume)
 LAM, MU = 0.5, -0.53
 TARGET_FACES = 350_000   # triângulos suaves por região (dentro da região) após simplificar
 SMALL_MIN = 150          # componentes com menos blocos que isso viram cubos
