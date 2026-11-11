@@ -12,6 +12,7 @@ FOLHAGEM = np.array([18, 161])
 DECOR = np.array([6, 27, 28, 30, 31, 32, 37, 38, 39, 40, 50, 59, 63, 65, 66, 68, 69, 70, 72, 75, 76, 77, 83, 106, 111, 131, 132, 140, 141, 142, 143, 147, 148, 157, 171, 175, 176, 177])
 PAVE = np.array([4, 24, 121, 43, 44, 98])
 SIGMA = 3.0  # suavização da superfície (m)
+ID_RUA = 24  # bloco único do piso das ruas (arenito): sem o xadrez de cores entre tipos de piso
 
 
 def aplicar_ruas(ids):
@@ -44,10 +45,12 @@ def aplicar_ruas(ids):
     m3 = mask[:, None, :]
     Hs3 = Hs[:, None, :]
     nt3 = nt[:, None, :]
-    tid3 = top_id[:, None, :]
     # vão entre o terreno natural e a superfície da rua: preenche com o piso
     fill = m3 & (ys >= nt3) & (ys < Hs3) & (ids == 0)
-    ids = np.where(fill, tid3, ids)
+    ids = np.where(fill, ID_RUA, ids)
+    # piso de rua já existente abaixo da superfície: todo vira o mesmo bloco (sem juntas coloridas)
+    surf = m3 & (ys >= nt3) & (ys < Hs3) & np.isin(ids, PAVE)
+    ids = np.where(surf, ID_RUA, ids)
     # piso acima da superfície: sai
     clear = m3 & (ys >= Hs3) & np.isin(ids, PAVE)
     ids = np.where(clear, 0, ids)
