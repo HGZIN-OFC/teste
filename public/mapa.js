@@ -79,13 +79,24 @@ function buildTerrain(rec) {
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setIndex(idx);
   geo.computeVertexNormals();
+  // sombreado por inclinação: encostas íngremes escurecem, o que dá volume ao chão pintado
+  {
+    const nrm = geo.attributes.normal.array, colArr = new Float32Array(G * G * 3);
+    for (let k = 0; k < G * G; k++) {
+      const slope = 1 - nrm[k * 3 + 1];
+      const f = 1 - 0.55 * Math.min(1, slope * 2.5);
+      colArr[k * 3] = f; colArr[k * 3 + 1] = f; colArr[k * 3 + 2] = f;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
+  }
+
   const img = loadImg(rec.key);
   const tex = new THREE.Texture(img);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
   img.onload = () => { tex.needsUpdate = true; };
   if (img.complete && img.naturalWidth) tex.needsUpdate = true;
-  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex }));
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex, vertexColors: true }));
   mesh.receiveShadow = true;
   rec.tex = tex;
   return mesh;
