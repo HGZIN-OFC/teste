@@ -154,7 +154,8 @@ function solidLocal(rec, x, y, z) {
 // quads: int16 x8 = [x,y,z, sx,sy,sz, eixo*2+sinal, cor]. Um mesh por material (cada um com sua textura).
 function buildStruct(quadsBuf, rec) {
   if (!MATOF) MATOF = paleta.map((c) => MATS.indexOf(matOfRGB(c)));
-  const q = new Int16Array(quadsBuf.buffer, quadsBuf.byteOffset, quadsBuf.byteLength / 2), n = q.length / 8;
+  const bytes = quadsBuf instanceof ArrayBuffer ? new Uint8Array(quadsBuf) : quadsBuf;   // gunzip devolve ArrayBuffer
+  const q = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2), n = q.length / 8;
   const B = MATS.map(() => ({ pos: [], nor: [], col: [], uv: [] }));
   const mn = [0, 0, 0], sz = [0, 0, 0];
   for (let k = 0; k < n; k++) {
