@@ -20,7 +20,7 @@ import numpy as np
 from scipy import sparse, ndimage
 from skimage import measure
 from anvil import load_box
-from ruas import aplicar_ruas
+from ruas import aplicar_ruas, fechar_pedra
 from palette import rgb
 from paths import REG
 from mesher import mesh as greedy_mesh
@@ -30,6 +30,7 @@ TS = 512            # tamanho da região (blocos)
 Y = 256             # altura máxima
 M = 32              # margem em blocos (>= 2 * iterações Taubin + folga)
 BAND = 6.0          # faixa da borda da região (em blocos) que fica congelada
+BLUR_SIGMA = 0.8  # desfoque do campo de voxels antes da isosuperfície (tira o ruído em degrau)
 TAUBIN_ITERS = 14   # mais iterações = bordas mais arredondadas (sem encolher o volume)
 LAM, MU = 0.5, -0.53
 TARGET_FACES = 350_000   # triângulos suaves por região (dentro da região) após simplificar
@@ -193,6 +194,7 @@ def build(rx, rz):
     del a
     ids = aplicar_ruas(ids)  # ruas planas (ver ruas.py)
     solid = (ids != 0) & ~np.isin(ids, list(NATURAL)) & ~np.isin(ids, list(FOLHAGEM)) & ~np.isin(ids, list(DECOR))
+    solid = fechar_pedra(solid, ids)  # buracos de pedra natural dentro das construções
     ys = np.flatnonzero(solid.any(axis=(0, 2)))
     if ys.size == 0:
         return write(rx, rz, np.zeros((0, 3)), np.zeros((0, 3), np.uint8), np.zeros((0, 3), np.int64))
@@ -219,7 +221,8 @@ def build(rx, rz):
     print(f'  construções (suaves): {int(smooth_solid.sum())} blocos; finos (cubos): {int(cube_solid.sum())}', flush=True)
 
     if smooth_solid.any():
-        verts, faces, _, _ = measure.marching_cubes(smooth_solid.astype(np.float32), level=0.5, spacing=(1, 1, 1), allow_degenerate=False)
+        field = ndimage.gaussian_filter(smooth_solid.astype(np.float32), BLUR_SIGMA)
+        verts, faces, _, _ = measure.marching_cubes(field, level=0.5, spacing=(1, 1, 1), allow_degenerate=False)
         v = taubin(verts, faces, TAUBIN_ITERS, LAM, MU)
         local = np.empty_like(v)
         local[:, 0] = v[:, 0] - M + 0.5

@@ -55,3 +55,11 @@ def aplicar_ruas(ids):
     clear = m3 & (ys >= Hs3) & np.isin(ids, PAVE)
     ids = np.where(clear, 0, ids)
     return ids
+
+
+def fechar_pedra(solid, ids):
+    """Preenche buracos de pedra/terra/cascalho natural que ficam dentro de construções de cobblestone etc.
+    (sem isso a massa vira um queijo e a malha fica espinhosa). Só adiciona blocos naturais de pedra, terra e cascalho."""
+    from scipy import ndimage
+    cl = ndimage.binary_closing(solid, structure=np.ones((3, 3, 3), dtype=bool))
+    return solid | (cl & np.isin(ids, np.array([1, 3, 13])))

@@ -5,7 +5,7 @@ sys.path.insert(0, '/home/claude/mapbuild')
 import numpy as np
 from scipy import ndimage
 from anvil import load_box
-from ruas import aplicar_ruas
+from ruas import aplicar_ruas, fechar_pedra
 from paths import REG, tile_list
 OUT = '/home/claude/shinobi-wilds/public/mundo'
 Y = 256
@@ -22,6 +22,7 @@ for (rx, rz) in tile_list():
     ids = aplicar_ruas((a >> 4).astype(np.int32))[MG:MG + 512, :, MG:MG + 512]
     del a
     solid = (ids != 0) & ~np.isin(ids, list(NATURAL)) & ~np.isin(ids, list(FOLHAGEM)) & ~np.isin(ids, list(DECOR))
+    solid = fechar_pedra(solid, ids)
     # peças pequenas e soltas (troncos sem copa, pedregulhos) não bloqueiam: não aparecem no mapa suave
     # (elementos finos como cercas e vidros continuam sólidos)
     lab, _ = ndimage.label(solid)
