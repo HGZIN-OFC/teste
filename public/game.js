@@ -1,8 +1,10 @@
 // Núcleo do jogo: controle do personagem, câmera, combate, rede e missão.
 import * as THREE from 'three';
-import { WORLD, buildColliders, collide, levelFromXp, RANKS } from './shared.js';
+import { WORLD, levelFromXp, RANKS } from './shared.js';
 import { buildNinja, animateNinja, setOutlines } from './ninja.js';
-import { buildKonoha } from './world.js';
+import { buildNarutoWorld } from './world.js';
+import { loadArenaWeb } from './terrain-web.js';
+import { ARENA_BOUNDS } from './terrain.js';
 import { derive, saveChar, saveWorld, loadSettings, saveSettings, DEFAULT_SETTINGS } from './store.js';
 import { Net } from './net.js';
 import { LocalNet } from './localnet.js';
@@ -19,21 +21,21 @@ const ACTION_KEYS = ['jump', 'dash', 'fire', 'fear', 'interact', 'cloak', 'byaku
 
 export async function startGame({ world, char, onExit }) {
   const settings = loadSettings();
+  const { terrain, paleta } = await loadArenaWeb();   // Konoha do mapa Naruto (terreno, colisão e estruturas)
   const canvas = document.getElementById('game');
   if (!renderer) { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' }); renderer.shadowMap.type = THREE.PCFSoftShadowMap; }
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x8fd3ff); scene.fog = new THREE.Fog(0xc8ebff, 90, 420);
   const camera = new THREE.PerspectiveCamera(settings.fov, innerWidth / innerHeight, 0.1, 800);
   const hemi = new THREE.HemisphereLight(0xdcefff, 0x8a7a5a, 1.2); scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff0d0, 2.2); sun.castShadow = true; sun.shadow.camera.left = -45; sun.shadow.camera.right = 45; sun.shadow.camera.top = 45; sun.shadow.camera.bottom = -45; sun.shadow.camera.far = 220; sun.shadow.bias = -0.0004; sun.shadow.camera.updateProjectionMatrix(); scene.add(sun, sun.target);
-  const konoha = buildKonoha(scene);
-  const COLLIDERS = buildColliders();
+  const konoha = buildNarutoWorld(scene, terrain, paleta);
   const fx = createFx(scene), ents = createEntities(scene);
-  const audio = new Audio(settings), net = world.solo ? new LocalNet() : new Net();
+  const audio = new Audio(settings), net = world.solo ? new LocalNet(terrain) : new Net();
   let D = derive(char), disposed = false, raf = 0, joined = false, myId = null, mission = null, lastSnap = null;
 
   // ----- jogador -----
   const J = buildNinja(char.look, char.clan, char.tails); scene.add(J.root);
-  const P = { x: WORLD.spawn[0], y: 0, z: WORLD.spawn[2], vx: 0, vz: 0, vy: 0, yaw: 0, face: 0, pitch: 0.12, grounded: true, jumps: 0, stam: D.maxStam, ck: D.maxChakra, hp: D.maxHp, mhp: D.maxHp, act: null, actT: 0, hitDone: false, combo: 0, dashDir: [0, 1], djT: 0, lastSpend: -9, cloak: false, byak: false, dead: false, hurtT: 0, fireCd: 0, ramenAt: -99, shake: 0 };
+  const P = { x: WORLD.spawn[0], y: terrain.groundAt(WORLD.spawn[0], WORLD.spawn[2], 0), z: WORLD.spawn[2], vx: 0, vz: 0, vy: 0, yaw: 0, face: 0, pitch: 0.12, grounded: true, jumps: 0, stam: D.maxStam, ck: D.maxChakra, hp: D.maxHp, mhp: D.maxHp, act: null, actT: 0, hitDone: false, combo: 0, dashDir: [0, 1], djT: 0, lastSpend: -9, cloak: false, byak: false, dead: false, hurtT: 0, fireCd: 0, ramenAt: -99, shake: 0 };
   const keys = new Set(); let codeMap = {}; const isTouch = isTouchDevice(); let tc = { mx: 0, my: 0, run: false }, touchUI = null;
   let locked = false, time = 0, last = performance.now(), sendT = 0, partyT = 0;
 
@@ -155,8 +157,8 @@ export async function startGame({ world, char, onExit }) {
         net.send({ t: 'hit', id, kind: 'fire', dmg: Math.round(D.fireDmg * mult()), burn: D.burnSecs, burnDps: Math.round(D.burnDps * mult()) }); explode(p); return true;
       }
     }
-    if (p.y < 0.3) { explode(p); return true; }
-    if (p.y < 9) for (const [cx, cz, w, d] of COLLIDERS) if (Math.abs(p.x - cx) < w / 2 && Math.abs(p.z - cz) < d / 2) { explode(p); return true; }
+    if (p.y < terrain.terrAt(p.x, p.z) + 0.3) { explode(p); return true; }
+    if (terrain.solidAt(p.x, p.y, p.z)) { explode(p); return true; }
     return false;
   }
   function doHit(n) {
@@ -194,7 +196,7 @@ export async function startGame({ world, char, onExit }) {
   net.on('snap', (m) => {
     lastSnap = m; ents.onSnap(m, myId);
     const me = m.pl.find(p => p.id === myId); if (!me) return;
-    if (P.dead && !me.dead) { P.x = WORLD.spawn[0]; P.z = WORLD.spawn[2]; P.y = 0; P.vx = P.vz = P.vy = 0; H.setDead(false); }
+    if (P.dead && !me.dead) { P.x = WORLD.spawn[0]; P.z = WORLD.spawn[2]; P.y = terrain.groundAt(P.x, P.z, 0); P.vx = P.vz = P.vy = 0; H.setDead(false); }
     if (!P.dead && me.dead) { H.setDead(true); P.act = null; }
     P.dead = me.dead; P.hp = me.hp; P.mhp = me.mhp;
   });
@@ -226,8 +228,7 @@ export async function startGame({ world, char, onExit }) {
     const hh = 1.6 * (char.look.height || 1), cp = Math.cos(P.pitch);
     const dx = Math.sin(P.yaw) * cp, dy = Math.sin(P.pitch), dz = Math.cos(P.yaw) * cp;
     const hx = P.x, hy = P.y + hh, hz = P.z; let dist = 4.3;
-    const H0 = WORLD.hokage, inside = Math.abs(P.x - H0.x) < H0.w / 2 - 0.6 && P.z > H0.z - H0.d / 2 + 0.6 && P.z < H0.z + H0.d / 2 - 0.6;
-    let t = 1; for (let i = 1; i <= 10; i++) { const s = i / 10, cx = hx - dx * dist * s, cy = hy - dy * dist * s + 0.5 * s, cz = hz - dz * dist * s; let bad = cy < 0.25 || (inside && cy > 4.6); if (!bad) for (const [bx, bz, w, d] of COLLIDERS) if (Math.abs(cx - bx) < w / 2 + 0.3 && Math.abs(cz - bz) < d / 2 + 0.3) { bad = true; break; } if (bad) { t = Math.max(0.12, (i - 1) / 10); break; } }
+    let t = 1; for (let i = 1; i <= 10; i++) { const s = i / 10, cx = hx - dx * dist * s, cy = hy - dy * dist * s + 0.5 * s, cz = hz - dz * dist * s; const bad = cy < terrain.terrAt(cx, cz) + 0.25 || terrain.solidAt(cx, cy, cz); if (bad) { t = Math.max(0.12, (i - 1) / 10); break; } }
     dist *= t; tmpCam.set(hx - dx * dist, hy - dy * dist + 0.5 * t, hz - dz * dist);
     if (P.shake > 0) { P.shake -= dt; tmpCam.x += (Math.random() - 0.5) * P.shake * 0.4; tmpCam.y += (Math.random() - 0.5) * P.shake * 0.4; }
     camera.position.copy(tmpCam); camera.lookAt(hx + dx * 10, hy + dy * 10 + 0.5, hz + dz * 10);
@@ -249,9 +250,15 @@ export async function startGame({ world, char, onExit }) {
     const lock_ = P.act && P.act !== 'dash' ? (P.act === 'cast' || P.act === 'fear' ? 0.3 : 0.45) : 1;
     if (P.act === 'dash') { P.vx = P.dashDir[0] * 25; P.vz = P.dashDir[1] * 25; P.vy = Math.max(P.vy, 0); }
     else { const k = Math.min(1, dt * (P.grounded ? 14 : 4)); P.vx += (inp.mx * sp0 * lock_ - P.vx) * k; P.vz += (inp.mz * sp0 * lock_ - P.vz) * k; }
-    P.vy -= 32 * dt; P.x += P.vx * dt; P.z += P.vz * dt; P.y += P.vy * dt;
-    if (P.y <= 0) { P.y = 0; if (P.vy < 0) P.vy = 0; if (!P.grounded) { P.grounded = true; P.jumps = 0; } } else if (P.y > 0.05) P.grounded = false;
-    [P.x, P.z] = collide(P.x, P.z, 0.45, COLLIDERS); P.x = Math.max(-170, Math.min(170, P.x)); P.z = Math.max(-80, Math.min(175, P.z));
+    P.vy -= 32 * dt;
+    // paredes e estruturas (voxels): cada eixo é testado separadamente, então o personagem desliza na parede
+    const nx = P.x + P.vx * dt, nz = P.z + P.vz * dt;
+    if (terrain.blockedAt(nx, P.y, P.z)) P.vx = 0; else P.x = nx;
+    if (terrain.blockedAt(P.x, P.y, nz)) P.vz = 0; else P.z = nz;
+    P.y += P.vy * dt;
+    const gy = terrain.groundAt(P.x, P.z, P.y);   // chão: terreno ou piso de estrutura
+    if (P.y <= gy) { P.y = gy; if (P.vy < 0) P.vy = 0; if (!P.grounded) { P.grounded = true; P.jumps = 0; } } else if (P.y > gy + 0.05) P.grounded = false;
+    P.x = Math.max(ARENA_BOUNDS.x0 + 1, Math.min(ARENA_BOUNDS.x1 - 1, P.x)); P.z = Math.max(ARENA_BOUNDS.z0 + 1, Math.min(ARENA_BOUNDS.z1 - 1, P.z));
     // ações
     if (P.act) { const a = AC[P.act]; P.actT += dt / a.dur; if (!P.hitDone && P.actT >= a.hit) { P.hitDone = true; doHit(P.act); } if (P.actT >= 1) { P.act = null; P.actT = 0; } }
     if (P.djT > 0) P.djT -= dt; P.hurtT -= dt;

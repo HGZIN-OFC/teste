@@ -1,6 +1,8 @@
 // Dados compartilhados entre cliente (navegador) e servidor (Node).
 // Tudo aqui é puro (sem DOM, sem three.js).
 
+import { ARENA_BOUNDS } from './terrain.js';
+
 export const MAX_PLAYERS = 4;
 
 export const RANKS = ['Genin', 'Chūnin', 'Jōnin'];
@@ -49,15 +51,12 @@ export const SKILLS = {
   tai_stam: { tree: 'Taijutsu', name: 'Hachimon: Primeiro Portão', cost: 2, req: 'tai_dash', desc: 'Abre o primeiro portão interno: +30 de stamina máxima.' },
 };
 
-// Mapa: Konoha. Unidades em metros. Vila em x,z ∈ [-70,70]; portão ao sul (z=+70).
+// Mundo: Konoha do mapa Naruto (1 bloco = 1 m). O terreno e as estruturas vêm de /mundo (ver terrain.js).
+// spawn/fieldCenter são x,z; a altura (y) é sempre calculada pelo terreno.
 export const WORLD = {
-  villageHalf: 70,
-  gateZ: 70,
-  spawn: [0, 0.1, -34], // dentro da sala do Hokage
-  hokage: { x: 0, z: -35, w: 22, d: 20 }, // pegada do prédio
-  boardPos: [-6, 0, -41], // quadro de missões (dentro da sala)
-  deskPos: [0, 0, -42], // mesa do Hokage (promoção)
-  fieldCenter: [0, 0, 105], // campo fora do portão onde os bandidos aparecem
+  spawn: [500, 0, -1413],          // nascimento dos ninjas em Konoha
+  fieldCenter: [512, 0, -1429],    // campo aberto a 20 m do nascimento (onde os bandidos aparecem)
+  arena: ARENA_BOUNDS,             // limites do mundo jogável (3 x 3 regiões)
 };
 
 export const MISSIONS = {
@@ -83,61 +82,6 @@ export const ENEMY_TYPES = {
   firebandit: { name: 'Bandido do Fogo', hp: 45, speed: 3.4, dmg: 0, range: 18, cd: 3.2, scale: 1 },
   boss: { name: 'Chefe Bandido', hp: 320, speed: 3.6, dmg: 16, range: 2.8, cd: 1.4, scale: 1.45 },
 };
-
-// Colisores (caixas) em XZ: [cx, cz, largura, profundidade]. Usados por cliente e servidor.
-export function buildColliders() {
-  const c = [];
-  const H = WORLD.hokage;
-  const t = 0.8; // espessura das paredes
-  const x0 = H.x - H.w / 2, x1 = H.x + H.w / 2;
-  const z0 = H.z - H.d / 2, z1 = H.z + H.d / 2; // z1 = fachada sul (porta)
-  c.push([H.x, z0, H.w, t]); // fundo
-  c.push([x0, H.z, t, H.d]); // oeste
-  c.push([x1, H.z, t, H.d]); // leste
-  const door = 4; // largura da porta
-  c.push([x0 + (H.w / 2 - door / 2) / 2, z1, H.w / 2 - door / 2, t]);
-  c.push([x1 - (H.w / 2 - door / 2) / 2, z1, H.w / 2 - door / 2, t]);
-  // casas (decoração com colisão)
-  for (const h of HOUSES) c.push([h.x, h.z, h.w, h.d]);
-  // barraca de ramen (balcão)
-  c.push([RAMEN.x, RAMEN.z, 4.5, 1.6]);
-  // muro da vila com abertura no portão
-  const hv = WORLD.villageHalf;
-  c.push([0, -hv, hv * 2, 1.5]); // norte
-  c.push([-hv, 0, 1.5, hv * 2]); // oeste
-  c.push([hv, 0, 1.5, hv * 2]); // leste
-  const gap = 12;
-  c.push([-(hv + gap / 2) / 2, hv, hv - gap / 2, 1.5]);
-  c.push([(hv + gap / 2) / 2, hv, hv - gap / 2, 1.5]);
-  return c;
-}
-
-export const HOUSES = [
-  { x: -30, z: -10, w: 10, d: 9, h: 6, color: 0xd9b48c },
-  { x: -30, z: 12, w: 9, d: 9, h: 5, color: 0xc9a37a },
-  { x: 30, z: -8, w: 10, d: 10, h: 6.5, color: 0xdfc29b },
-  { x: 32, z: 14, w: 9, d: 8, h: 5, color: 0xcfa982 },
-  { x: -46, z: 40, w: 9, d: 9, h: 5.5, color: 0xd2ab81 },
-  { x: 46, z: 40, w: 10, d: 9, h: 6, color: 0xdcbb92 },
-  { x: -46, z: -20, w: 8, d: 8, h: 5, color: 0xc7a078 },
-  { x: 46, z: -22, w: 8, d: 9, h: 5.5, color: 0xd6b189 },
-];
-export const RAMEN = { x: 14, z: 6 };
-
-// Resolve colisão círculo-vs-caixas. Retorna nova posição [x,z].
-export function collide(x, z, r, colliders) {
-  for (let i = 0; i < 3; i++) {
-    for (const [cx, cz, w, d] of colliders) {
-      const hx = w / 2 + r, hz = d / 2 + r;
-      const dx = x - cx, dz = z - cz;
-      if (Math.abs(dx) < hx && Math.abs(dz) < hz) {
-        const px = hx - Math.abs(dx), pz = hz - Math.abs(dz);
-        if (px < pz) x += dx >= 0 ? px : -px; else z += dz >= 0 ? pz : -pz;
-      }
-    }
-  }
-  return [x, z];
-}
 
 // Regra de rank: o jogador pode participar se ele mesmo tem rank suficiente
 // OU se há um companheiro com rank suficiente no grupo. Nunca promove sozinho.

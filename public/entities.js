@@ -45,7 +45,7 @@ export function createEntities(scene) {
           const bg = new THREE.Sprite(barBg), fg = new THREE.Sprite(barFg); bg.scale.set(1.5, 0.16, 1); fg.center.set(0, 0.5); fg.scale.set(1.4, 0.1, 1); bg.position.set(0, v.h / T.scale, 0); fg.position.set(-0.7, v.h / T.scale, 0); bg.renderOrder = 8; fg.renderOrder = 9; v.g.add(bg, fg); v.fg = fg;
           v.flame = new THREE.Mesh(flameGeo, flameMat); v.flame.position.y = 1.0; v.flame.visible = false; v.g.add(v.flame); v.ring = new THREE.Mesh(ringGeo, ringMat); v.ring.rotation.x = Math.PI / 2; v.ring.position.y = 2.0; v.ring.visible = false; v.g.add(v.ring);
           v.mark = textSprite('◆ inimigo', { color: '#ff6b6b', size: 34 }); v.mark.position.y = (v.h / T.scale) + 0.6; v.mark.visible = false; v.g.add(v.mark); enemies.set(e.id, v); }
-        v.tp.set(e.p[0], 0, e.p[2]); v.tr = e.ry; if (!v.init) { v.p.copy(v.tp); v.ry = v.tr; v.init = true; }
+        v.tp.set(e.p[0], e.p[1] || 0, e.p[2]); v.tr = e.ry; if (!v.init) { v.p.copy(v.tp); v.ry = v.tr; v.init = true; }
         v.hp = e.hp; v.stun = e.st; v.burn = e.bn; v.fg.scale.x = Math.max(0.001, 1.4 * e.hp / e.mhp);
       }
       for (const [id, v] of enemies) if (!seen.has(id)) { scene.remove(v.g); enemies.delete(id); }

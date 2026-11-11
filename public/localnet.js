@@ -2,10 +2,10 @@
 import { createSim } from './sim.js';
 
 export class LocalNet {
-  constructor() { this.handlers = {}; this.open = false; this.sim = null; this.timer = 0; this.conn = null; }
+  constructor(terrain) { this.terrain = terrain; this.handlers = {}; this.open = false; this.sim = null; this.timer = 0; this.conn = null; }
   on(type, fn) { this.handlers[type] = fn; return this; }
   async connect() {
-    this.sim = createSim();
+    this.sim = createSim({ terrain: this.terrain });
     this.conn = { player: null, send: (o) => { const m = JSON.parse(JSON.stringify(o)); setTimeout(() => { const f = this.handlers[m.t]; if (f) f(m); }, 0); } };
     this.open = true; let last = performance.now();
     this.timer = setInterval(() => { // avança a simulação em tempo real (máx. 5 passos por vez, se a aba ficou lenta)

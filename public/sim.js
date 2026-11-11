@@ -1,10 +1,12 @@
 // Simulação do mundo (salas, missões, inimigos, combate). Roda no servidor Node (multiplayer) e no navegador (modo solo).
-import { MAX_PLAYERS, WORLD, MISSIONS, ENEMY_TYPES, canJoinMission, buildColliders, collide, RANKS } from './shared.js';
+import { MAX_PLAYERS, WORLD, MISSIONS, ENEMY_TYPES, canJoinMission, RANKS } from './shared.js';
 
 // conn = { send(obj), player: null }
-export function createSim({ testMode = false, log = () => {} } = {}) {
+// terrain: createTerrain() já com as regiões carregadas (ver terrain.js / terrain-node.js)
+export function createSim({ terrain, testMode = false, log = () => {} } = {}) {
+  if (!terrain) throw new Error('createSim precisa do terreno (terrain)');
   const TEST_MODE = testMode;
-  const COLLIDERS = buildColliders();
+  const spawnPos = () => { const x = WORLD.spawn[0], z = WORLD.spawn[2]; return [x, terrain.groundAt(x, z, 0), z]; };
 // ---------- Salas (mundos) ----------
 const rooms = new Map();
 let uid = 1;
@@ -75,7 +77,7 @@ function handleJoin(conn, m) {
   const p = {
     id: uid++, conn, room, name: String(c.name || 'Ninja').slice(0, 16),
     char: { clan: String(c.clan || 'uchiha'), rank, level: Math.max(1, Math.min(20, c.level | 0 || 1)), look: c.look || {}, tails: c.tails | 0 },
-    pos: WORLD.spawn.slice(), ry: 0, an: 'idle', hp: 100, maxHp: Math.min(499, Math.max(50, +c.maxHp || 100)),
+    pos: spawnPos(), ry: 0, an: 'idle', hp: 100, maxHp: Math.min(499, Math.max(50, +c.maxHp || 100)),
     dead: false, respawnAt: 0, invuln: 0, burn: null, lastHit: 0, lastAbility: -99, lastZone: -99, ffBlocked: 0,
   };
   p.hp = p.maxHp;
@@ -127,7 +129,8 @@ function acceptMission(room, p, mid) {
 function spawnEnemy(room, type, i) {
   const c = WORLD.fieldCenter; const ang = Math.random() * Math.PI * 2; const rad = 6 + Math.random() * 12;
   const id = room.enemyId++; const T = ENEMY_TYPES[type];
-  room.enemies.set(id, { id, type, p: [c[0] + Math.cos(ang) * rad, 0, c[2] + Math.sin(ang) * rad], ry: 0, hp: T.hp, maxHp: T.hp, cd: 1 + Math.random(), stun: 0, burn: null, hurtBy: new Set() });
+  const ex = c[0] + Math.cos(ang) * rad, ez = c[2] + Math.sin(ang) * rad;
+  room.enemies.set(id, { id, type, p: [ex, terrain.groundAt(ex, ez, 0), ez], ry: 0, hp: T.hp, maxHp: T.hp, cd: 1 + Math.random(), stun: 0, burn: null, hurtBy: new Set() });
 }
 function endMission(room, success, msg) {
   const m = room.mission; if (!m) return;
@@ -213,7 +216,7 @@ function tick() {
     const alive = [...room.players.values()].filter(p => !p.dead);
     // jogadores: respawn, regeneração, queimadura
     for (const p of room.players.values()) {
-      if (p.dead && t >= p.respawnAt) { p.dead = false; p.hp = p.maxHp; p.pos = WORLD.spawn.slice(); p.invuln = t + 2.5; bcast(room, { t: 'fx', k: 'respawn', id: p.id }); }
+      if (p.dead && t >= p.respawnAt) { p.dead = false; p.hp = p.maxHp; p.pos = spawnPos(); p.invuln = t + 2.5; bcast(room, { t: 'fx', k: 'respawn', id: p.id }); }
       if (!p.dead && p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + 0.6 * DT);
       if (p.burn) {
         if (p.burn.src.kind === 'player') p.burn = null; // defesa extra
@@ -251,14 +254,18 @@ function tick() {
       const keep = e.type === 'firebandit' ? 12 : T.range * 0.8;
       if (d > keep) {
         const sp = T.speed * DT;
-        const [nx, nz] = collide(e.p[0] + dx / d * sp, e.p[2] + dz / d * sp, 0.5, COLLIDERS);
-        e.p[0] = nx; e.p[2] = nz;
+        // anda na direção do alvo; se bater numa estrutura, desliza pelo eixo livre
+        const tx = e.p[0] + dx / d * sp, tz = e.p[2] + dz / d * sp;
+        if (!terrain.blockedAt(tx, e.p[1], tz)) { e.p[0] = tx; e.p[2] = tz; }
+        else if (!terrain.blockedAt(tx, e.p[1], e.p[2])) e.p[0] = tx;
+        else if (!terrain.blockedAt(e.p[0], e.p[1], tz)) e.p[2] = tz;
+        e.p[1] = terrain.groundAt(e.p[0], e.p[2], e.p[1]);
       }
       if (e.type === 'firebandit') {
         if (d < T.range && e.cd <= 0) {
           e.cd = T.cd;
           const dir = [dx / d, 0, dz / d];
-          room.fb.push({ id: room.enemyId++, p: [e.p[0], 1.4, e.p[2]], v: [dir[0] * 14, 0, dir[2] * 14], ttl: 3 });
+          room.fb.push({ id: room.enemyId++, p: [e.p[0], e.p[1] + 1.4, e.p[2]], v: [dir[0] * 14, 0, dir[2] * 14], ttl: 3 });
         }
       } else if (d < T.range + 0.3 && e.cd <= 0) {
         e.cd = T.cd;

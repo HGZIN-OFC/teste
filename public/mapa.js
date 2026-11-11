@@ -6,7 +6,8 @@ import { buildNinja, defaultLook } from './ninja.js';
 const TS = 512;           // tamanho de uma região em blocos (= metros)
 const STEP = 4;           // passo da grade de terreno
 const G = 129;            // 512 / 4 + 1
-const R_TERR = 2;         // raio (em regiões) com terreno
+const TOUCH = matchMedia('(pointer: coarse)').matches;   // celular/tablet: versão leve
+const R_TERR = TOUCH ? 1 : 2;   // raio (em regiões) com terreno
 const R_STRUCT = 0;       // raio (em regiões) com malha de estruturas: só a região atual (malha pesada)
 const R_SOLID = 1;        // raio (em regiões) com colisão voxel das estruturas
 const SPAWN = { x: 500, z: -1413 };   // spawn do próprio save
@@ -14,16 +15,23 @@ const SPAWN = { x: 500, z: -1413 };   // spawn do próprio save
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
 const canvas = $('cena');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.shadowMap.enabled = false;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !TOUCH });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, TOUCH ? 1 : 2));
+renderer.shadowMap.enabled = !TOUCH;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9fd3f0);
-scene.fog = new THREE.Fog(0x9fd3f0, 900, 2600);
-const camera = new THREE.PerspectiveCamera(60, 1, 0.5, 4000);
+// no celular a névoa é mais próxima: esconde a borda do terreno carregado e poupa GPU
+scene.fog = TOUCH ? new THREE.Fog(0x9fd3f0, 400, 1000) : new THREE.Fog(0x9fd3f0, 900, 2600);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.5, TOUCH ? 1400 : 4000);
 scene.add(new THREE.HemisphereLight(0xdff3ff, 0x4a6b3a, 0.85));
 const sun = new THREE.DirectionalLight(0xfff1d6, 1.0);
 sun.position.set(300, 500, 200);
+sun.castShadow = !TOUCH;
+sun.shadow.mapSize.set(TOUCH ? 1024 : 2048, TOUCH ? 1024 : 2048);
+Object.assign(sun.shadow.camera, { left: -180, right: 180, top: 180, bottom: -180, near: 10, far: 1200 });
+sun.shadow.camera.updateProjectionMatrix();
+sun.shadow.bias = -0.0004;
 scene.add(sun);
 
 let indice = null, paleta = null, pal3 = null;
@@ -74,47 +82,124 @@ function buildTerrain(rec) {
   img.onload = () => { tex.needsUpdate = true; };
   if (img.complete && img.naturalWidth) tex.needsUpdate = true;
   const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex }));
+  mesh.receiveShadow = true;
   rec.tex = tex;
   return mesh;
 }
 
-// quads: int16 x8 = [x,y,z, sx,sy,sz, eixo*2+sinal, cor]
-function buildStruct(quadsBuf) {
-  const q = new Int16Array(quadsBuf), n = q.length / 8;
-  const pos = new Float32Array(n * 12), nor = new Float32Array(n * 12), col = new Float32Array(n * 12);
-  const idx = new Uint32Array(n * 6);
-  const mn = [0, 0, 0], sz = [0, 0, 0], e = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-  let p = 0, t = 0, v = 0;
+// ---------- materiais das estruturas ----------
+// O mapa guarda só a cor de cada bloco, então cada cor da paleta vira um material pelo tom:
+// madeira, telha, pedra, reboco (parede clara), folhagem ou liso. Cada material tem uma textura procedural.
+const MATS = ['liso', 'madeira', 'telha', 'pedra', 'reboco', 'folhagem'];
+function matOfRGB([r, g, b]) {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), lum = (r + g + b) / 3;
+  if (mx - mn < 18) return lum > 185 ? 'reboco' : 'pedra';                 // cinza/branco
+  if (g > r + 15 && g > b + 15) return 'folhagem';                          // verde
+  if (r > g + 40 && r > b + 50) return lum > 120 ? 'telha' : 'madeira';     // vermelho/laranja
+  if (r > g && g > b && r - b > 25) return lum > 150 ? 'reboco' : 'madeira'; // marrom/bege
+  return 'liso';
+}
+let MATOF = null;   // índice da cor da paleta -> índice do material
+const matTexCache = {};
+
+// textura procedural (256 px = 4 m); a cor do bloco é multiplicada por ela
+function makeMatTex(name) {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+  const R = (k) => Math.random() * k;
+  g.fillStyle = '#fff'; g.fillRect(0, 0, 256, 256);
+  const speck = (n, a) => { for (let i = 0; i < n; i++) { const v = Math.random() < 0.5 ? 255 : 0; g.fillStyle = `rgba(${v},${v},${v},${a})`; g.fillRect(R(256), R(256), 2 + R(3), 2 + R(3)); } };
+  if (name === 'madeira') {                                     // tábuas com veios
+    for (let i = 0; i < 4; i++) {
+      const v = 200 + R(40); g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(0, i * 64, 256, 64);
+      for (let k = 0; k < 14; k++) { g.strokeStyle = `rgba(0,0,0,${0.05 + R(0.08)})`; g.lineWidth = 1 + R(2); g.beginPath(); const y0 = i * 64 + R(64); g.moveTo(0, y0); g.bezierCurveTo(80, y0 + R(10) - 5, 170, y0 + R(10) - 5, 256, y0 + R(8) - 4); g.stroke(); }
+      g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(0, i * 64, 256, 3);            // junta entre tábuas
+    }
+    speck(120, 0.06);
+  } else if (name === 'telha') {                                // telhas em arco (escamas)
+    for (let y = 0; y < 8; y++) for (let x = -1; x < 9; x++) {
+      const v = 200 + R(50); g.fillStyle = `rgb(${v},${v},${v})`;
+      g.beginPath(); g.arc(x * 32 + (y % 2 ? 16 : 0), y * 32 + 16, 17, 0, Math.PI); g.fill();
+      g.strokeStyle = 'rgba(0,0,0,.4)'; g.lineWidth = 2; g.stroke();
+    }
+  } else if (name === 'pedra') {                                // blocos de pedra com juntas
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+      const o = (y % 2) * 32; const v = 185 + R(60); g.fillStyle = `rgb(${v},${v},${v})`;
+      g.fillRect(x * 64 - o, y * 64, 64, 64);
+      g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 3; g.strokeRect(x * 64 - o, y * 64, 64, 64);
+    }
+    speck(260, 0.07);
+  } else if (name === 'reboco') {                               // parede de reboco com manchas suaves
+    for (let i = 0; i < 40; i++) { const v = 215 + R(35); g.fillStyle = `rgba(${v},${v},${v},.5)`; g.beginPath(); g.arc(R(256), R(256), 10 + R(30), 0, Math.PI * 2); g.fill(); }
+    speck(200, 0.05);
+  } else if (name === 'folhagem') {                             // copa com manchas claras e escuras
+    for (let i = 0; i < 60; i++) { const v = R() < 0.5 ? 170 : 255; g.fillStyle = `rgba(${v},${v},${v},.35)`; g.beginPath(); g.arc(R(256), R(256), 6 + R(18), 0, Math.PI * 2); g.fill(); }
+  } else {                                                     // liso: leve granulação
+    speck(180, 0.04);
+  }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+function matTex(name) { return matTexCache[name] ??= makeMatTex(name); }
+const AO_F = [0.55, 0.7, 0.85, 1.0];   // brilho por nível de oclusão (0 = canto fechado)
+// bloco ocupado na região (lx,ly,lz) — usa o mesmo bitset da colisão
+function solidLocal(rec, x, y, z) {
+  if (!rec.solid || x < 0 || z < 0 || y < 0 || x >= TS || z >= TS || y >= 256) return false;
+  return ((rec.solid[(x * TS + z) * 32 + (y >> 3)] >> (7 - (y & 7))) & 1) === 1;
+}
+
+// quads: int16 x8 = [x,y,z, sx,sy,sz, eixo*2+sinal, cor]. Um mesh por material (cada um com sua textura).
+function buildStruct(quadsBuf, rec) {
+  if (!MATOF) MATOF = paleta.map((c) => MATS.indexOf(matOfRGB(c)));
+  const q = new Int16Array(quadsBuf.buffer, quadsBuf.byteOffset, quadsBuf.byteLength / 2), n = q.length / 8;
+  const B = MATS.map(() => ({ pos: [], nor: [], col: [], uv: [] }));
+  const mn = [0, 0, 0], sz = [0, 0, 0];
   for (let k = 0; k < n; k++) {
     const o = k * 8;
     mn[0] = q[o]; mn[1] = q[o + 1]; mn[2] = q[o + 2];
     sz[0] = q[o + 3]; sz[1] = q[o + 4]; sz[2] = q[o + 5];
     const ax = q[o + 6], d = ax >> 1, sgn = (ax & 1) ? 1 : -1;
-    const cc = q[o + 7] * 3;
+    const ci = q[o + 7], cc = ci * 3;
     const cr = pal3[cc], cg = pal3[cc + 1], cb = pal3[cc + 2];
+    const bk = B[MATOF[ci]];
     const U = d === 0 ? 1 : 0, Vax = d === 2 ? 1 : 2;
     const nrm = [0, 0, 0]; nrm[d] = sgn;
-    const c0 = [mn[0], mn[1], mn[2]];
-    const c1 = c0.slice(); c1[U] += sz[U];
-    const c2 = c1.slice(); c2[Vax] += sz[Vax];
-    const c3 = c0.slice(); c3[Vax] += sz[Vax];
+    const A = mn[d] + (sgn > 0 ? 0 : -1);   // coordenada do bloco de ar, na direção da normal
+    // oclusão ambiental: vizinhos ocupados no ar em volta do canto (lado 1, lado 2 e diagonal)
+    const ao = (cu, cv) => {
+      const bu = mn[U] + cu * sz[U], bv = mn[Vax] + cv * sz[Vax];
+      const inU = cu ? bu - 1 : bu, outU = cu ? bu : bu - 1;
+      const inV = cv ? bv - 1 : bv, outV = cv ? bv : bv - 1;
+      const at = (uu, vv) => { const pp = [0, 0, 0]; pp[d] = A; pp[U] = uu; pp[Vax] = vv; return solidLocal(rec, pp[0], pp[1], pp[2]) ? 1 : 0; };
+      const s1 = at(outU, inV), s2 = at(inU, outV), c3 = at(outU, outV);
+      return s1 && s2 ? 0 : 3 - (s1 + s2 + c3);
+    };
     const flip = (d === 1 ? -1 : 1) * sgn < 0;   // (U x V) aponta para a normal?
-    const corners = flip ? [c0, c3, c2, c1] : [c0, c1, c2, c3];
-    for (const c of corners) {
-      pos[p++] = c[0]; pos[p++] = c[1]; pos[p++] = c[2];
-      nor[v++] = nrm[0]; nor[v] = nrm[1]; nor[v + 1] = nrm[2]; v += 2;
-      col[t++] = cr; col[t++] = cg; col[t++] = cb;
+    const cs = flip ? [[0, 0], [0, 1], [1, 1], [1, 0]] : [[0, 0], [1, 0], [1, 1], [0, 1]];
+    const V4 = cs.map(([cu, cv]) => {
+      const c = [mn[0], mn[1], mn[2]]; c[U] += cu * sz[U]; c[Vax] += cv * sz[Vax];
+      const f = AO_F[ao(cu, cv)];
+      return { c, f };
+    });
+    // dois triângulos por quad, sem índice (mais simples para dividir por material)
+    for (const j of [0, 1, 2, 0, 2, 3]) {
+      const { c, f } = V4[j];
+      bk.pos.push(c[0], c[1], c[2]); bk.nor.push(nrm[0], nrm[1], nrm[2]);
+      bk.col.push(cr * f, cg * f, cb * f); bk.uv.push(c[U] * 0.25, c[Vax] * 0.25);
     }
-    const b = k * 4;
-    idx[k * 6] = b; idx[k * 6 + 1] = b + 1; idx[k * 6 + 2] = b + 2;
-    idx[k * 6 + 3] = b; idx[k * 6 + 4] = b + 2; idx[k * 6 + 5] = b + 3;  // com 'flip' a ordem já está certa
   }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  geo.setIndex(new THREE.BufferAttribute(idx, 1));
-  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  const group = new THREE.Group();
+  B.forEach((bk, mi) => {
+    if (!bk.pos.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(bk.pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(bk.nor, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(bk.col, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(bk.uv, 2));
+    const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, map: matTex(MATS[mi]) }));
+    mesh.castShadow = !TOUCH; mesh.receiveShadow = true;
+    group.add(mesh);
+  });
+  return group;
 }
 
 async function ensureRegion(rx, rz, wantStruct, wantSolid = false) {
@@ -137,18 +222,18 @@ async function ensureRegion(rx, rz, wantStruct, wantSolid = false) {
     })().catch((e) => { console.warn(e); rec.loading = null; });
   }
   await rec.loading;
-  if (wantStruct && !rec.struct && !rec.structLoading && rec.terr) {
-    rec.structLoading = gunzip(`/mundo/r.${rx}.${rz}.quads.gz`).then((buf) => {
-      rec.struct = buildStruct(buf); rec.group.add(rec.struct);
-    }).catch((e) => console.warn(e));
-  }
-  if (rec.structLoading) await rec.structLoading;
   if (wantSolid && !rec.solid && !rec.solidLoading && rec.terr) {
     rec.solidLoading = gunzip(`/mundo/r.${rx}.${rz}.solid.gz`).then((buf) => {
       rec.solid = new Uint8Array(buf);
     }).catch((e) => console.warn(e));
   }
   if (rec.solidLoading) await rec.solidLoading;
+  if (wantStruct && !rec.struct && !rec.structLoading && rec.terr) {
+    rec.structLoading = gunzip(`/mundo/r.${rx}.${rz}.quads.gz`).then((buf) => {
+      rec.struct = buildStruct(buf, rec); rec.group.add(rec.struct);
+    }).catch((e) => console.warn(e));
+  }
+  if (rec.structLoading) await rec.structLoading;
   return rec;
 }
 
@@ -182,7 +267,9 @@ function altAt(x, z) {
 const player = { x: SPAWN.x, z: SPAWN.z, y: 0, vy: 0, onGround: false, facing: 0 };
 const ninja = buildNinja(defaultLook());
 scene.add(ninja.root);
+ninja.root.traverse((o) => { if (o.isMesh) { o.castShadow = !TOUCH; } });
 const keys = {};
+const touch = { mx: 0, my: 0, run: false, jumpQ: false };   // controles de toque (joystick e botões)
 let yaw = 0, pitch = 0.35, dist = 12, dragging = false, lastX = 0, lastY = 0;
 let miniScale = 0.9;  // pixels do minimapa por metro
 
@@ -192,19 +279,66 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Space') e.preventDefault();
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
-canvas.addEventListener('pointerdown', (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
-addEventListener('pointerup', () => { dragging = false; });
+// arrastar gira a câmera (1 dedo/mouse); pinça com 2 dedos aproxima/afasta
+const ptrs = new Map(); let pinch0 = 1, dist0 = dist;
+const pinchDist = () => { const [a, b] = [...ptrs.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
+canvas.addEventListener('pointerdown', (e) => {
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 1) { dragging = true; lastX = e.clientX; lastY = e.clientY; }
+  else if (ptrs.size === 2) { dragging = false; pinch0 = pinchDist(); dist0 = dist; }
+});
 addEventListener('pointermove', (e) => {
+  const p = ptrs.get(e.pointerId);
+  if (!p) return;
+  p.x = e.clientX; p.y = e.clientY;
+  if (ptrs.size === 2) { dist = Math.min(60, Math.max(4, dist0 * pinch0 / pinchDist())); return; }
   if (!dragging) return;
   yaw -= (e.clientX - lastX) * 0.006;
   pitch = Math.min(1.2, Math.max(0.05, pitch + (e.clientY - lastY) * 0.004));
   lastX = e.clientX; lastY = e.clientY;
 });
+const ptrUp = (e) => {
+  ptrs.delete(e.pointerId);
+  dragging = ptrs.size === 1;
+  if (dragging) { const p = [...ptrs.values()][0]; lastX = p.x; lastY = p.y; }
+};
+addEventListener('pointerup', ptrUp);
+addEventListener('pointercancel', ptrUp);
 canvas.addEventListener('wheel', (e) => { dist = Math.min(60, Math.max(4, dist + e.deltaY * 0.01)); }, { passive: true });
 $('zin').onclick = () => { miniScale = Math.min(4, miniScale * 1.4); };
 $('zout').onclick = () => { miniScale = Math.max(0.2, miniScale / 1.4); };
 $('mapbtn').onclick = () => toggleFull();
 $('mini').onclick = () => toggleFull();
+
+// joystick (canto inferior esquerdo): empurra o personagem na direção do polegar
+const joy = $('joy'), knob = $('knob');
+let joyId = null;
+const JOY_MAX = 0.7;   // fração do raio em que o joystick chega a "velocidade máxima"
+function joyMove(e) {
+  const r = joy.getBoundingClientRect();
+  const R = r.width / 2, cx = r.left + R, cy = r.top + R;
+  let dx = e.clientX - cx, dy = e.clientY - cy;
+  const d = Math.hypot(dx, dy), m = Math.min(d, R * JOY_MAX);
+  if (d > 0) { dx = dx / d * m; dy = dy / d * m; }
+  knob.style.transform = `translate(${dx}px, ${dy}px)`;
+  touch.mx = dx / (R * JOY_MAX); touch.my = dy / (R * JOY_MAX);   // para cima = negativo = frente (W)
+}
+function joyEnd(e) {
+  if (e.pointerId !== joyId) return;
+  joyId = null; touch.mx = 0; touch.my = 0; knob.style.transform = '';
+}
+joy.addEventListener('pointerdown', (e) => { e.preventDefault(); joyId = e.pointerId; joy.setPointerCapture(e.pointerId); joyMove(e); });
+joy.addEventListener('pointermove', (e) => { if (e.pointerId === joyId) joyMove(e); });
+joy.addEventListener('pointerup', joyEnd);
+joy.addEventListener('pointercancel', joyEnd);
+
+// botões: Correr (segurar) e Pular (toque)
+const btnRun = $('btnRun'), btnJump = $('btnJump');
+btnRun.addEventListener('pointerdown', (e) => { e.preventDefault(); touch.run = true; });
+btnRun.addEventListener('pointerup', () => { touch.run = false; });
+btnRun.addEventListener('pointercancel', () => { touch.run = false; });
+btnRun.addEventListener('pointerleave', () => { touch.run = false; });
+btnJump.addEventListener('pointerdown', (e) => { e.preventDefault(); touch.jumpQ = true; });
 
 // bloco sólido (estrutura) em (x,y,z) em metros inteiros
 function solidAt(x, y, z) {
@@ -220,7 +354,7 @@ function solidAt(x, y, z) {
 // o corpo ocupa 2 blocos de altura e tem uma largura de 0,6 m
 function blockedAt(x, feet, z) {
   for (const ox of [-0.3, 0.3]) for (const oz of [-0.3, 0.3]) {
-    if (solidAt(x + ox, feet + 0.4, z + oz) || solidAt(x + ox, feet + 1.4, z + oz)) return true;
+    if (solidAt(x + ox, feet + 1.0, z + oz) || solidAt(x + ox, feet + 2.0, z + oz)) return true;   // degrau de 1 bloco: sobe
   }
   return false;
 }
@@ -242,11 +376,13 @@ function step(dt) {
   if (keys.KeyS || keys.ArrowDown) iz += 1;    // S = para trás
   if (keys.KeyA || keys.ArrowLeft) ix -= 1;    // A = esquerda
   if (keys.KeyD || keys.ArrowRight) ix += 1;   // D = direita
+  ix += touch.mx; iz += touch.my;              // joystick (valores entre -1 e 1)
   const len = Math.hypot(ix, iz);
   if (len > 0) {
+    const mag = Math.min(1, len);              // joystick parcial anda mais devagar
     ix /= len; iz /= len;
-    const run = keys.ShiftLeft || keys.ShiftRight;
-    const sp = (run ? 11 : 6) * dt;
+    const run = keys.ShiftLeft || keys.ShiftRight || touch.run;
+    const sp = (run ? 11 : 6) * dt * mag;
     // frente da câmera = (sin yaw, cos yaw); direita = (-cos yaw, sin yaw)
     const fx = Math.sin(yaw), fz = Math.cos(yaw), rx = -Math.cos(yaw), rz = Math.sin(yaw);
     const mx = rx * ix - fx * iz, mz = rz * ix - fz * iz;
@@ -257,7 +393,8 @@ function step(dt) {
   }
   // gravidade, pulo e chão (terreno ou piso de estrutura)
   const gy = groundAt(player.x, player.z, player.y);
-  if (keys.Space && player.onGround) { player.vy = 9; player.onGround = false; }
+  const jumpReq = keys.Space || touch.jumpQ; touch.jumpQ = false;
+  if (jumpReq && player.onGround) { player.vy = 9; player.onGround = false; }
   player.vy -= 26 * dt;
   player.y += player.vy * dt;
   if (player.y <= gy) { player.y = gy; player.vy = 0; player.onGround = true; }
