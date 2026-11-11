@@ -63,6 +63,9 @@ function buildSmoothMesh(u8) {
   return mesh;
 }
 
+// Mapa visual inteiro vindo do .glb (malha com textura por vértice). Desliga a malha de grade do terreno.
+const MAPA_GLB = true;
+
 // Monta a arena: terreno de todas as regiões já, e as estruturas do nascimento primeiro (depois, uma região por vez).
 export async function buildNarutoWorld(scene, terrain) {
   const root = new THREE.Group(); scene.add(root);
@@ -71,7 +74,7 @@ export async function buildNarutoWorld(scene, terrain) {
   const recs = [...terrain.regions.values()].sort((a, b) => near(a) - near(b));
   for (const rec of recs) {
     const g = new THREE.Group(); g.position.set(rec.rx * TS, 0, rec.rz * TS); root.add(g);
-    g.add(buildTerrainMesh(rec));
+    if (!MAPA_GLB) g.add(buildTerrainMesh(rec));   // o chão visual vem do mapa .glb (ver glb_mapa.py)
     rec.group = g;
   }
   const addStruct = (rec, buf) => { rec.group.add(buildSmoothMesh(buf)); };

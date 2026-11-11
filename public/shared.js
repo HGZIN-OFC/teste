@@ -54,8 +54,8 @@ export const SKILLS = {
 // Mundo: Konoha do mapa Naruto (1 bloco = 1 m). O terreno e as estruturas vêm de /mundo (ver terrain.js).
 // spawn/fieldCenter são x,z; a altura (y) é sempre calculada pelo terreno.
 export const WORLD = {
-  spawn: [499, 0, -1250],          // praça no centro de Konoha (vila do mapa Naruto)
-  fieldCenter: [459, 0, -1250],    // campo aberto a ~40 m da praça (onde os bandidos aparecem)
+  spawn: [201, 0, -1295],          // praça no centro da vila (mapa .glb novo)
+  fieldCenter: [241, 0, -1295],    // campo aberto a ~40 m da praça (onde os bandidos aparecem)
   arena: ARENA_BOUNDS,             // limites do mundo jogável (3 x 3 regiões)
 };
 
