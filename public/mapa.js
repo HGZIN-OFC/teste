@@ -7,7 +7,8 @@ const TS = 512;           // tamanho de uma região em blocos (= metros)
 const STEP = 4;           // passo da grade de terreno
 const G = 129;            // 512 / 4 + 1
 const R_TERR = 2;         // raio (em regiões) com terreno
-const R_STRUCT = 0;       // raio (em regiões) com estruturas: só a região atual (malha pesada)
+const R_STRUCT = 0;       // raio (em regiões) com malha de estruturas: só a região atual (malha pesada)
+const R_SOLID = 1;        // raio (em regiões) com colisão voxel das estruturas
 const SPAWN = { x: 500, z: -1413 };   // spawn do próprio save
 
 const $ = (id) => document.getElementById(id);
@@ -116,7 +117,7 @@ function buildStruct(quadsBuf) {
   return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
 }
 
-async function ensureRegion(rx, rz, wantStruct) {
+async function ensureRegion(rx, rz, wantStruct, wantSolid = false) {
   if (!hasRegion(rx, rz)) return null;
   const key = keyOf(rx, rz);
   let rec = regions.get(key);
@@ -142,6 +143,12 @@ async function ensureRegion(rx, rz, wantStruct) {
     }).catch((e) => console.warn(e));
   }
   if (rec.structLoading) await rec.structLoading;
+  if (wantSolid && !rec.solid && !rec.solidLoading && rec.terr) {
+    rec.solidLoading = gunzip(`/mundo/r.${rx}.${rz}.solid.gz`).then((buf) => {
+      rec.solid = new Uint8Array(buf);
+    }).catch((e) => console.warn(e));
+  }
+  if (rec.solidLoading) await rec.solidLoading;
   return rec;
 }
 
@@ -199,37 +206,62 @@ $('zout').onclick = () => { miniScale = Math.max(0.2, miniScale / 1.4); };
 $('mapbtn').onclick = () => toggleFull();
 $('mini').onclick = () => toggleFull();
 
+// bloco sólido (estrutura) em (x,y,z) em metros inteiros
+function solidAt(x, y, z) {
+  const rec = regionAt(x, z);
+  if (!rec || !rec.solid) return false;
+  const ly = Math.floor(y);
+  if (ly < 0 || ly >= 256) return false;
+  const lx = Math.floor(x - rec.rx * TS), lz = Math.floor(z - rec.rz * TS);
+  if (lx < 0 || lz < 0 || lx >= TS || lz >= TS) return false;
+  const byte = rec.solid[(lx * TS + lz) * 32 + (ly >> 3)];
+  return ((byte >> (7 - (ly & 7))) & 1) === 1;
+}
+// o corpo ocupa 2 blocos de altura e tem uma largura de 0,6 m
+function blockedAt(x, feet, z) {
+  for (const ox of [-0.3, 0.3]) for (const oz of [-0.3, 0.3]) {
+    if (solidAt(x + ox, feet + 0.4, z + oz) || solidAt(x + ox, feet + 1.4, z + oz)) return true;
+  }
+  return false;
+}
+// chão: o terreno ou o topo de um bloco sólido (ex.: piso de casa), o que estiver logo abaixo
+function groundAt(x, z, y) {
+  const t = terrAt(x, z);
+  const rec = regionAt(x, z);
+  if (!rec || !rec.solid) return t;
+  const top = Math.min(255, Math.floor(y + 1.6));
+  for (let ly = top; ly >= Math.max(0, Math.floor(t)); ly--) {
+    if (solidAt(x, ly, z)) return Math.max(t, ly + 1);
+  }
+  return t;
+}
+
 function step(dt) {
   let ix = 0, iz = 0;
-  if (keys.KeyW || keys.ArrowUp) iz -= 1;
-  if (keys.KeyS || keys.ArrowDown) iz += 1;
-  if (keys.KeyA || keys.ArrowLeft) ix -= 1;
-  if (keys.KeyD || keys.ArrowRight) ix += 1;
+  if (keys.KeyW || keys.ArrowUp) iz -= 1;      // W = para frente
+  if (keys.KeyS || keys.ArrowDown) iz += 1;    // S = para trás
+  if (keys.KeyA || keys.ArrowLeft) ix -= 1;    // A = esquerda
+  if (keys.KeyD || keys.ArrowRight) ix += 1;   // D = direita
   const len = Math.hypot(ix, iz);
   if (len > 0) {
     ix /= len; iz /= len;
     const run = keys.ShiftLeft || keys.ShiftRight;
     const sp = (run ? 11 : 6) * dt;
-    // direção relativa à câmera
-    const sx = ix * Math.cos(yaw) + iz * Math.sin(yaw);
-    const sz = -ix * Math.sin(yaw) + iz * Math.cos(yaw);
-    const nx = player.x + sx * sp, nz = player.z + sz * sp;
-    const ground = terrAt(player.x, player.z);
-    const blockedAt = (x, z) => {
-      const a = altAt(x, z), t = terrAt(x, z);
-      return (a - t) > 1.2 && a > player.y + 1.2;   // parede ou telhado acima do chão
-    };
-    if (!blockedAt(nx, player.z)) player.x = nx;
-    if (!blockedAt(player.x, nz)) player.z = nz;
-    player.facing = Math.atan2(sx, sz);
-    void ground;
+    // frente da câmera = (sin yaw, cos yaw); direita = (-cos yaw, sin yaw)
+    const fx = Math.sin(yaw), fz = Math.cos(yaw), rx = -Math.cos(yaw), rz = Math.sin(yaw);
+    const mx = rx * ix - fx * iz, mz = rz * ix - fz * iz;
+    const nx = player.x + mx * sp, nz = player.z + mz * sp;
+    if (!blockedAt(nx, player.y, player.z)) player.x = nx;
+    if (!blockedAt(player.x, player.y, nz)) player.z = nz;
+    player.facing = Math.atan2(mx, mz);
   }
-  // gravidade e pulo
-  const gy = terrAt(player.x, player.z);
+  // gravidade, pulo e chão (terreno ou piso de estrutura)
+  const gy = groundAt(player.x, player.z, player.y);
   if (keys.Space && player.onGround) { player.vy = 9; player.onGround = false; }
   player.vy -= 26 * dt;
   player.y += player.vy * dt;
   if (player.y <= gy) { player.y = gy; player.vy = 0; player.onGround = true; }
+  else if (player.onGround && player.y > gy + 0.3) { player.onGround = false; }
 }
 
 // ---------- minimapa ----------
@@ -297,7 +329,8 @@ async function streamRegions() {
     for (let dx = -R_TERR; dx <= R_TERR; dx++) for (let dz = -R_TERR; dz <= R_TERR; dz++) {
       const rx = crx + dx, rz = crz + dz;
       const near = Math.abs(dx) <= R_STRUCT && Math.abs(dz) <= R_STRUCT;
-      await ensureRegion(rx, rz, near);
+      const solid = Math.abs(dx) <= R_SOLID && Math.abs(dz) <= R_SOLID;
+      await ensureRegion(rx, rz, near, solid);
     }
     for (const rec of [...regions.values()]) {
       const dx = Math.abs(rec.rx - crx), dz = Math.abs(rec.rz - crz);
@@ -335,7 +368,7 @@ async function start() {
   pal3 = new Float32Array(paleta.length * 3);
   paleta.forEach((c, i) => { pal3[i * 3] = c[0] / 255; pal3[i * 3 + 1] = c[1] / 255; pal3[i * 3 + 2] = c[2] / 255; });
   // o terreno sob o jogador precisa estar pronto antes de posicionar
-  await ensureRegion(Math.floor(SPAWN.x / TS), Math.floor(SPAWN.z / TS), true);
+  await ensureRegion(Math.floor(SPAWN.x / TS), Math.floor(SPAWN.z / TS), true, true);
   player.y = terrAt(player.x, player.z);
   ready = true;
   statusEl.textContent = 'Konoha · regiões: ' + regions.size + ' · M: mapa completo';
