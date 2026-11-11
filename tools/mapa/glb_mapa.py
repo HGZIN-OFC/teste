@@ -43,11 +43,7 @@ for p in prims:
         continue
     P = p['pos']; I = p['ind']
     a, b, c = P[I[:, 0]], P[I[:, 1]], P[I[:, 2]]
-    # só superfícies quase horizontais (topo do terreno)
-    nrm = np.cross(b - a, c - a)
-    ln = np.linalg.norm(nrm, axis=1) + 1e-9
-    ok = np.abs(nrm[:, 1]) / ln > 0.35
-    a, b, c = a[ok], b[ok], c[ok]
+    # todas as faces de terreno (inclusive encostas): sem isso as encostas ficam sem chão e caem no mar
     for ta, tb, tc in zip(a, b, c):
         x0 = max(int(np.floor(min(ta[0], tb[0], tc[0]))) - ARENA_X0, 0)
         x1 = min(int(np.ceil(max(ta[0], tb[0], tc[0]))) - ARENA_X0, 1535)
@@ -70,6 +66,12 @@ for p in prims:
         h = l1 * ta[1] + l2 * tb[1] + l3 * tc[1]
         sub = H[x0:x1 + 1, z0:z1 + 1]
         np.maximum(sub, np.where(inside, h, -np.inf), out=sub)
+from scipy import ndimage
+falta = ~np.isfinite(H)
+if falta.any() and (~falta).any():
+    idx = ndimage.distance_transform_edt(falta, return_distances=False, return_indices=True)
+    H_pre = H[idx[0], idx[1]]
+    H = np.where(falta & (H_pre > -np.inf), H_pre, H)
 print('altura do chão rasterizada', round(time.time() - t0, 1), 'com', int(np.isfinite(H).sum()), 'células', flush=True)
 
 # 4) grava as regiões
