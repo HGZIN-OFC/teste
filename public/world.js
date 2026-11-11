@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { WORLD } from './shared.js';
 import { toon } from './ninja.js';
 import { TS, STEP, G } from './terrain.js';
+import { gunzip } from './terrain-web.js';
 
 function paletteRGB(paleta) {
   const p = new Float32Array(paleta.length * 3);
@@ -38,13 +39,13 @@ function buildTerrainMesh(rec) {
   return mesh;
 }
 
-// quads: int16 x8 = [x,y,z, sx,sy,sz, eixo*2+sinal, cor] (mesma lógica do mapa.html)
+// quads: int16 x8 = [x,y,z, sx,sy,sz, eixo*2+sinal, cor] (mesma lógica do mapa.html). Arrays tipados: bem mais rápido.
 function buildStructMesh(quadsBuf, pal3) {
   const q = new Int16Array(quadsBuf.buffer, quadsBuf.byteOffset, quadsBuf.byteLength / 2), n = q.length / 8;
-  const pos = new Float32Array(n * 12), nor = new Float32Array(n * 12), col = new Float32Array(n * 12);
-  const idx = new Uint32Array(n * 6);
-  const mn = [0, 0, 0], sz = [0, 0, 0];
-  let p = 0, t = 0, v = 0;
+  const pos = new Float32Array(n * 18), nor = new Float32Array(n * 18), col = new Float32Array(n * 18);
+  const mn = [0, 0, 0], sz = [0, 0, 0], nrm = [0, 0, 0], c = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  const TRI = [0, 1, 2, 0, 2, 3];   // 2 triângulos por quad
+  let p = 0;
   for (let k = 0; k < n; k++) {
     const o = k * 8;
     mn[0] = q[o]; mn[1] = q[o + 1]; mn[2] = q[o + 2];
@@ -53,44 +54,56 @@ function buildStructMesh(quadsBuf, pal3) {
     const cc = q[o + 7] * 3;
     const cr = pal3[cc], cg = pal3[cc + 1], cb = pal3[cc + 2];
     const U = d === 0 ? 1 : 0, Vax = d === 2 ? 1 : 2;
-    const nrm = [0, 0, 0]; nrm[d] = sgn;
-    const c0 = [mn[0], mn[1], mn[2]];
-    const c1 = c0.slice(); c1[U] += sz[U];
-    const c2 = c1.slice(); c2[Vax] += sz[Vax];
-    const c3 = c0.slice(); c3[Vax] += sz[Vax];
+    nrm[0] = nrm[1] = nrm[2] = 0; nrm[d] = sgn;
     const flip = (d === 1 ? -1 : 1) * sgn < 0;
-    const corners = flip ? [c0, c3, c2, c1] : [c0, c1, c2, c3];
-    for (const c of corners) {
-      pos[p++] = c[0]; pos[p++] = c[1]; pos[p++] = c[2];
-      nor[v++] = nrm[0]; nor[v] = nrm[1]; nor[v + 1] = nrm[2]; v += 2;
-      col[t++] = cr; col[t++] = cg; col[t++] = cb;
+    const cs = flip ? [[0, 0], [0, 1], [1, 1], [1, 0]] : [[0, 0], [1, 0], [1, 1], [0, 1]];
+    for (let i = 0; i < 4; i++) {
+      const cu = cs[i][0], cv = cs[i][1], ci = c[i];
+      ci[0] = mn[0]; ci[1] = mn[1]; ci[2] = mn[2];
+      ci[U] += cu * sz[U]; ci[Vax] += cv * sz[Vax];
     }
-    const b = k * 4;
-    idx[k * 6] = b; idx[k * 6 + 1] = b + 1; idx[k * 6 + 2] = b + 2;
-    idx[k * 6 + 3] = b; idx[k * 6 + 4] = b + 2; idx[k * 6 + 5] = b + 3;
+    for (let j = 0; j < 6; j++) {
+      const ci = c[TRI[j]];
+      pos[p] = ci[0]; pos[p + 1] = ci[1]; pos[p + 2] = ci[2];
+      nor[p] = nrm[0]; nor[p + 1] = nrm[1]; nor[p + 2] = nrm[2];
+      col[p] = cr; col[p + 1] = cg; col[p + 2] = cb;
+      p += 3;
+    }
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  geo.setIndex(new THREE.BufferAttribute(idx, 1));
   const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
   mesh.castShadow = true; mesh.receiveShadow = true;
   return mesh;
 }
 
-// Monta a arena: terreno + estruturas de cada região carregada, e os provisórios perto do nascimento.
-export function buildNarutoWorld(scene, terrain, paleta) {
+// Monta a arena: terreno de todas as regiões já, e as estruturas do nascimento primeiro (depois, uma região por vez).
+export async function buildNarutoWorld(scene, terrain, paleta) {
   const root = new THREE.Group(); scene.add(root);
   const pal3 = paletteRGB(paleta);
-  for (const rec of terrain.regions.values()) {
+  const sx = WORLD.spawn[0], sz = WORLD.spawn[2];
+  const near = (rec) => Math.hypot(rec.rx * TS + TS / 2 - sx, rec.rz * TS + TS / 2 - sz);
+  const recs = [...terrain.regions.values()].sort((a, b) => near(a) - near(b));
+  for (const rec of recs) {
     const g = new THREE.Group(); g.position.set(rec.rx * TS, 0, rec.rz * TS); root.add(g);
     g.add(buildTerrainMesh(rec));
-    if (rec.quads) g.add(buildStructMesh(rec.quads, pal3));
+    rec.group = g;
   }
+  const addStruct = (rec, buf) => { rec.group.add(buildStructMesh(buf, pal3)); };
+  const first = recs[0];
+  const firstBuf = await gunzip(`/mundo/r.${first.rx}.${first.rz}.quads.gz`);
+  if (firstBuf) addStruct(first, firstBuf);
+  const pending = recs.slice(1);
+  let busy = false;
+  const streamStructs = () => {
+    if (busy || !pending.length) return;
+    const rec = pending.shift(); busy = true;
+    gunzip(`/mundo/r.${rec.rx}.${rec.rz}.quads.gz`).then((buf) => { if (buf) addStruct(rec, buf); }).catch(() => {}).finally(() => { busy = false; });
+  };
 
   // provisórios (posições relativas ao nascimento; a altura vem do terreno)
-  const sx = WORLD.spawn[0], sz = WORLD.spawn[2];
   const M = { wood: toon(0xa8703f), dark: toon(0x3a2a22), red: toon(0xc03a2b), cream: toon(0xf2e8cf), glow: new THREE.MeshBasicMaterial({ color: 0xffb347 }) };
   const at = (x, z, y0 = 0) => { const g = new THREE.Group(); g.position.set(x, terrain.groundAt(x, z, 0) + y0, z); root.add(g); return g; };
   const box = (parent, w, h, d, mat, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; };
@@ -116,6 +129,6 @@ export function buildNarutoWorld(scene, terrain, paleta) {
   ];
   return {
     root, interactables,
-    update(time) { lanterns.forEach((l, i) => { l.scale.setScalar(1 + Math.sin(time * 5 + i) * 0.04); }); },
+    update(time) { lanterns.forEach((l, i) => { l.scale.setScalar(1 + Math.sin(time * 5 + i) * 0.04); }); streamStructs(); },
   };
 }
