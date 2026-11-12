@@ -7,16 +7,15 @@ import crypto from 'crypto';
 import os from 'os';
 import { fileURLToPath } from 'url';
 import { createSim } from './public/sim.js';
-import { createTerrain } from './public/terrain.js';
-import { loadArenaNode } from './public/terrain-node.js';
+import { createModelTerrain } from './public/terrain-model.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, 'public');
 const PORT = Number(process.argv[2] || process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0'; // em hospedagem na nuvem o próprio serviço define PORT e HOST
 const TEST_MODE = process.env.SW_TEST === '1';
-const terrain = loadArenaNode(createTerrain(), path.join(PUBLIC, 'mundo')); // Konoha (mapa Naruto) carregada uma vez
-console.log(`Terreno carregado: ${terrain.regions.size} regiões`);
+const terrain = createModelTerrain(); // mapa voxel removido do runtime do novo mundo
+console.log('Mundo GLB selecionado: sem carregar o antigo terreno em blocos');
 const sim = createSim({ terrain, testMode: TEST_MODE, log: console.log });
 
 const MIME = {
