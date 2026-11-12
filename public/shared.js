@@ -1,7 +1,7 @@
 // Dados compartilhados entre cliente (navegador) e servidor (Node).
 // Tudo aqui é puro (sem DOM, sem three.js).
 
-import { ARENA_BOUNDS } from './terrain.js';
+import { ARENA_BOUNDS } from './terrain-model.js';
 
 export const MAX_PLAYERS = 4;
 
@@ -51,12 +51,12 @@ export const SKILLS = {
   tai_stam: { tree: 'Taijutsu', name: 'Hachimon: Primeiro Portão', cost: 2, req: 'tai_dash', desc: 'Abre o primeiro portão interno: +30 de stamina máxima.' },
 };
 
-// Mundo: Konoha do mapa Naruto (1 bloco = 1 m). O terreno e as estruturas vêm de /mundo (ver terrain.js).
-// spawn/fieldCenter são x,z; a altura (y) é sempre calculada pelo terreno.
+// Novo mundo: coordenadas do GLB ORIGINAL Mundo_Shinobi.glb, não do antigo mapa voxel.
+// Spawn provisório fora da sala do Hokage; a porta precisa de validação visual/colisão.
 export const WORLD = {
-  spawn: [201, 0, -1295],          // praça no centro da vila (mapa .glb novo)
-  fieldCenter: [241, 0, -1295],    // campo aberto a ~40 m da praça (onde os bandidos aparecem)
-  arena: ARENA_BOUNDS,             // limites do mundo jogável (3 x 3 regiões)
+  spawn: [-54.22, 17.946, 52.84],
+  fieldCenter: [-30, 0, 24],
+  arena: ARENA_BOUNDS,
 };
 
 export const MISSIONS = {
