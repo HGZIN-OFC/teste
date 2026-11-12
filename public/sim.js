@@ -6,7 +6,7 @@ import { MAX_PLAYERS, WORLD, MISSIONS, ENEMY_TYPES, canJoinMission, RANKS } from
 export function createSim({ terrain, testMode = false, log = () => {} } = {}) {
   if (!terrain) throw new Error('createSim precisa do terreno (terrain)');
   const TEST_MODE = testMode;
-  const spawnPos = () => { const x = WORLD.spawn[0], z = WORLD.spawn[2]; return [x, terrain.groundAt(x, z, 0), z]; };
+  const spawnPos = () => { const [x, y, z] = WORLD.spawn; return [x, terrain.groundAt(x, z, y), z]; };
 // ---------- Salas (mundos) ----------
 const rooms = new Map();
 let uid = 1;
