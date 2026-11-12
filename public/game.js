@@ -3,9 +3,9 @@ import * as THREE from 'three';
 import { WORLD, levelFromXp, RANKS } from './shared.js';
 import { buildNinja, animateNinja, setOutlines } from './ninja.js';
 import { buildNarutoWorld } from './world.js';
-import { loadArenaWeb } from './terrain-web.js';
+import { createModelTerrain } from './terrain-model.js';
 import { showLoading } from './loading.js';
-import { ARENA_BOUNDS } from './terrain.js';
+import { ARENA_BOUNDS } from './terrain-model.js';
 import { derive, saveChar, saveWorld, loadSettings, saveSettings, DEFAULT_SETTINGS } from './store.js';
 import { Net } from './net.js';
 import { LocalNet } from './localnet.js';
@@ -23,26 +23,31 @@ const ACTION_KEYS = ['jump', 'dash', 'fire', 'fear', 'interact', 'cloak', 'byaku
 export async function startGame({ world, char, onExit }) {
   const settings = loadSettings();
   const loader = showLoading('Carregando Konoha…');
-  let terrain;
-  try {
-    ({ terrain } = await loadArenaWeb(p => loader.set(p * 0.85, 'Baixando terreno, colisão e estruturas…')));  // Konoha do mapa Naruto
-  } catch (e) { loader.error('Erro ao carregar o mapa: ' + e.message); throw e; }
-  loader.set(0.9, 'Montando o mundo…');
+  // O cenário antigo em blocos foi desativado. O GLB original é obrigatório.
+  const terrain = createModelTerrain();
+  loader.set(0.15, 'Abrindo o modelo 3D original de Konoha…');
   const canvas = document.getElementById('game');
   if (!renderer) { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' }); renderer.shadowMap.type = THREE.PCFSoftShadowMap; }
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x8fd3ff); scene.fog = new THREE.Fog(0xc8ebff, 90, 420);
   const camera = new THREE.PerspectiveCamera(settings.fov, innerWidth / innerHeight, 0.1, 800);
   const hemi = new THREE.HemisphereLight(0xdcefff, 0x8a7a5a, 1.2); scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffe6bf, 2.2); sun.castShadow = true; sun.shadow.camera.left = -45; sun.shadow.camera.right = 45; sun.shadow.camera.top = 45; sun.shadow.camera.bottom = -45; sun.shadow.camera.far = 220; sun.shadow.bias = -0.0004; sun.shadow.camera.updateProjectionMatrix(); scene.add(sun, sun.target);
-  const konoha = await buildNarutoWorld(scene, terrain);
-  loader.set(1, 'Pronto!'); setTimeout(() => loader.done(), 150);
+  let konoha;
+  try {
+    konoha = await buildNarutoWorld(scene, terrain);
+  } catch (e) {
+    loader.error('Falha ao carregar nossa Konoha original: ' + e.message);
+    throw e;
+  }
+  const entry = konoha.proposedSpawn ?? new THREE.Vector3(...WORLD.spawn);
+  loader.set(1, 'Konoha original carregada!'); setTimeout(() => loader.done(), 150);
   const fx = createFx(scene), ents = createEntities(scene);
   const audio = new Audio(settings), net = world.solo ? new LocalNet(terrain) : new Net();
   let D = derive(char), disposed = false, raf = 0, joined = false, myId = null, mission = null, lastSnap = null;
 
   // ----- jogador -----
   const J = buildNinja(char.look, char.clan, char.tails); scene.add(J.root);
-  const P = { x: WORLD.spawn[0], y: terrain.groundAt(WORLD.spawn[0], WORLD.spawn[2], 0), z: WORLD.spawn[2], vx: 0, vz: 0, vy: 0, yaw: 0, face: 0, pitch: 0.12, grounded: true, jumps: 0, stam: D.maxStam, ck: D.maxChakra, hp: D.maxHp, mhp: D.maxHp, act: null, actT: 0, hitDone: false, combo: 0, dashDir: [0, 1], djT: 0, lastSpend: -9, cloak: false, byak: false, dead: false, hurtT: 0, fireCd: 0, ramenAt: -99, shake: 0 };
+  const P = { x: entry.x, y: terrain.groundAt(entry.x, entry.z, entry.y), z: entry.z, vx: 0, vz: 0, vy: 0, yaw: 0, face: 0, pitch: 0.12, grounded: true, jumps: 0, stam: D.maxStam, ck: D.maxChakra, hp: D.maxHp, mhp: D.maxHp, act: null, actT: 0, hitDone: false, combo: 0, dashDir: [0, 1], djT: 0, lastSpend: -9, cloak: false, byak: false, dead: false, hurtT: 0, fireCd: 0, ramenAt: -99, shake: 0 };
   const keys = new Set(); let codeMap = {}; const isTouch = isTouchDevice(); let tc = { mx: 0, my: 0, run: false }, touchUI = null;
   let locked = false, time = 0, last = performance.now(), sendT = 0, partyT = 0;
 
@@ -205,7 +210,7 @@ export async function startGame({ world, char, onExit }) {
   net.on('snap', (m) => {
     lastSnap = m; ents.onSnap(m, myId);
     const me = m.pl.find(p => p.id === myId); if (!me) return;
-    if (P.dead && !me.dead) { P.x = WORLD.spawn[0]; P.z = WORLD.spawn[2]; P.y = terrain.groundAt(P.x, P.z, 0); P.vx = P.vz = P.vy = 0; H.setDead(false); }
+    if (P.dead && !me.dead) { P.x = entry.x; P.z = entry.z; P.y = terrain.groundAt(P.x, P.z, entry.y); P.vx = P.vz = P.vy = 0; H.setDead(false); }
     if (!P.dead && me.dead) { H.setDead(true); P.act = null; }
     P.dead = me.dead; P.hp = me.hp; P.mhp = me.mhp;
   });
