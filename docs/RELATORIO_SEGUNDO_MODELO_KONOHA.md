@@ -1,25 +1,19 @@
-# Shinobi Wilds — inspeção do segundo modelo de Konoha (11/11/2026)
+# Shinobi Wilds — decisão final sobre os modelos de Konoha (11/11/2026)
 
-## Fonte recebida
-`naruto-hiddenly-village.zip` contém:
-- `source/untitled.fbx` — FBX binário 7400, uma única malha combinando toda a vila
-- `textures/Picsart_26-05-30_22-38-46-674.png` — atlas PNG 2828×2828
+## DECISÃO ATUAL — PREVALECE SOBRE TODAS AS PROPOSTAS ANTERIORES
 
-## Decisão do diretor criativo
-**CORREÇÃO APROVADA EM 11/11/2026:** Manter a **Konoha original inteira**, incluindo **os rostos do Monumento Hokage do primeiro GLB** (`Mundo_Shinobi.glb`). Do segundo arquivo `naruto-hiddenly-village.zip`, aproveitar **exclusivamente a geometria da montanha/encosta**, SEM reutilizar os cinco rostos esculpidos do segundo FBX e SEM importar a vila, casas, gabinete ou demais elementos desse FBX. A Mansão, gabinete, ruas, personagens e mecânicas do original ficam intactos.
+**Usar exclusivamente o PRIMEIRO modelo 3D de Konoha, incluindo a montanha e os rostos dos Hokages que já vieram nele.** Manter a vila, o monumento, o relevo/encosta, a Mansão do Hokage, o gabinete e todas as construções desse primeiro arquivo.
 
-## Resultado da inspeção do segundo FBX (referência técnica anterior; não é o resultado final aprovado)
-- Os **cinco rostos do segundo FBX** foram isolados experimentalmente, mas **NÃO serão usados**, conforme correção do usuário. Usar os rostos da primeira versão (`Mundo_Shinobi.glb`).
-- Arquivo de trabalho local: `Monumento_Hokage_Rostos_Recortados.glb`, cerca de 8,9 MB (3.370 triângulos de rostos).
-- Foi gerada uma prévia estática do monumento.
-- O **corpo rochoso da montanha está fundido com geometria de construções**, portanto o primeiro recorte bruto apresentou pedaços de edifícios e faces abertas. É necessário limpar ou reconstruir o recorte da rocha para assegurar uma troca visualmente aceitável.
+**DESCARTAR INTEGRALMENTE o SEGUNDO modelo** `naruto-hiddenly-village.zip`: não usar a montanha, rostos, textura, edifícios ou quaisquer elementos dele. Não prosseguir com recorte, combinação nem substituição de montanha ou rostos. As prévias experimentais anteriores não representam o visual aprovado e não devem ser implementadas.
 
-## Estado e limites
-**Esta etapa não é uma integração concluída do jogo.** O GLB recortado, a rocha refinada e os dados de colisão ainda **não foram adicionados ao GitHub**, nem há um link publicado de teste desta mudança.
-A extração parcial está disponível em pacote entregue na conversa com o usuário, não no repositório.
-Próximo passo: extrair **somente a rocha sem rostos e sem edifícios** do segundo FBX, ajustar escala/rotação para o paredão da Konoha original e manter/reaproveitar **as esculturas de Hokages do primeiro GLB**, sem substituir seu visual. Montar prévia e validar encaixe, colisões, FPS e modo solo/multiplayer antes de integração. Desativar/substituir apenas a rocha antiga quando a nova estiver validada. Adicionar assets só nesta branch e pedir aprovação antes de qualquer merge.
+## Situação da integração
 
-## Spawn aprovado
-O personagem deve nascer **no corredor imediatamente em frente à porta do gabinete do Hokage**, voltado para a entrada — **não dentro do gabinete**. Ver `docs/ESPECIFICACAO_SPAWN_KONOHA.md`.
+Esta decisão foi documentada na branch `chatgpt/mapa-3d-integracao`. É somente uma atualização de orientação; **não significa que o primeiro modelo 3D já esteja integrado ou que exista link jogável**. Não foram alterados assets ou códigos do jogo nesta atualização. Não modificar `main` nem `claude/desenvolvimento` sem autorização.
 
-**Branch de trabalho:** `chatgpt/mapa-3d-integracao`. Não tocar em `main` ou `claude/desenvolvimento` antes da aprovação.
+## Spawn aprovado anteriormente
+
+Ao jogar, o personagem deverá nascer no corredor imediatamente **fora da porta do gabinete do Hokage**, olhando para a entrada, sem nascer dentro da sala. Ver `docs/ESPECIFICACAO_SPAWN_KONOHA.md`.
+
+## Próximos passos
+
+Preparar ou testar a integração do primeiro modelo original somente, preservar a geometria original da montanha e dos rostos, conferir colisões, spawn e renderização; mostrar uma prévia fiel do arquivo real antes de pedir aprovação para integrar mudanças.
